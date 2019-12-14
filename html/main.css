@@ -1,0 +1,44 @@
+body, *{
+    margin:0;
+    padding:0;
+    color: black !important;
+}
+
+video{
+    width: 98vw;
+    margin: 1vw 1vw 1vw 1vw;
+    background-color: black;
+}
+
+.selector{
+    text-align: center;
+    padding-top: 45vh;
+}
+
+.selector *{
+    font-size: 5vh;
+    text-transform: capitalize;
+    margin: 5px;
+}
+
+button{
+    /*font-size: 5vh;*/
+    text-transform: capitalize;
+    margin: 5px;
+}
+
+.information {
+    white-space: wrap;
+    max-width: 98vw;
+    margin: 0 1vw 0;
+    overflow-x: hidden;
+}
+
+.information span {
+    white-space: pre;
+}
+
+.key {
+    font-weight: bold;
+}
+
