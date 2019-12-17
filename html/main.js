@@ -99,11 +99,12 @@ function applyAction(body, info) {
     actions = info["actions"]
     if (typeof actions["seekto"] != "undefined"){
         videoElement.currentTime = actions["seekto"]
-        try{
-            videoElement.play()
-        } catch (e) {
-            console.log(e)
-        }
+    }
+
+    try{
+        videoElement.play()
+    } catch (e) {
+        console.log(e)
     }
 }
 
@@ -144,6 +145,8 @@ function setUpStart() {
     var button = document.createElement("button")
     button.style["position"] = "absolute"
     button.style["top"] = "50%"
+    button.innerText = "Start"
+    button.style["font-size"] = "2vw"
 
     var div = document.createElement("div")
     div.style["text-align"] = "center"
@@ -174,7 +177,8 @@ function loadVideo(){
 }
 
 function start() {
-    setUpStart()
+//     setUpStart()
+    loadVideo()
 }
 
 function serializeTimerange(timerange) {

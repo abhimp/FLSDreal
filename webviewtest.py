@@ -8,9 +8,11 @@ import time
 import multiprocessing as mp
 from urllib.request import urlopen
 import os
+import tempfile
 
 
 from util.VideoHandler import VideoHandler
+from util.DummyPlayer import DummyPlayer
 
 
 INITIALCSS = """
@@ -20,8 +22,8 @@ video{width: 98vw;margin: 1vw 1vw 1vw 1vw;background-color: black;}
 
 
 videoHandler = None
-mainWindow = None
 theQ = None
+options = None
 
 BROWSER_READY   = "READY"
 PYVIEW_READY    = "PYREADY"
@@ -71,38 +73,28 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
 class MyHttpServer(httpserver.HTTPServer):
     pass
 
-class DummyPlayer:
-    def __init__(self, videoHandler):
-        self.playbackTime = 0
-        self.setPlaybackTime = 0
-        self.nextSegId = 0
-        self.buffer = []
-        self.videoHandler = videoHandler
-
-        self.init()
-
-    def init(self):
-        dur = self.videoHandler.getSegmentDur()
-        self.setPlaybackTime = self.videoHandler.expectedPlaybackTime()
-        print(self.setPlaybackTime, dur)
-        self.nextSegId = int(self.setPlaybackTime/dur)
-
 dPlayer = None
 
 def serveWithHttp(httpd):
     print("serving")
-    httpd.serve_forever()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt as e:
+        pass
+    dPlayer.shutdown()
 
 def initVideo():
     global dPlayer
+    videoHandler = VideoHandler(options.mpd_path)
     print("Main Loaded")
-    dPlayer = DummyPlayer(videoHandler)
+    dPlayer = DummyPlayer(videoHandler, options)
     return videoHandler.getJson()
 
 def getNextChunks(playbackTime, buffers):
     global dPlayer
-    segDur = videoHandler.vidInfo["segmentDuration"]
-    print(playbackTime, segDur, buffers)
+    segDur = dPlayer.videoHandler.vidInfo["segmentDuration"]
+    dPlayer.updateState(playbackTime, buffers)
+    print(playbackTime, segDur, buffers, dPlayer.nextSegId, dPlayer.setPlaybackTime)
     actions = {}
     if dPlayer.setPlaybackTime > 0:
         buffered = False
@@ -115,63 +107,48 @@ def getNextChunks(playbackTime, buffers):
             actions["seekto"] = dPlayer.setPlaybackTime
             dPlayer.setPlaybackTime = -1
 
-
     segmentPlaying = int(playbackTime/segDur)
     if segmentPlaying + 1 < dPlayer.nextSegId:
         return actions, [], [], 0
-    segs = []
-    fds = []
-    l = 0
-    ql = 0
-    for mt in ["audio", "video"]:
-        seg = {}
-        seg['seg'] = dPlayer.nextSegId
-        seg['type'] = mt
-        seg['rep'] = ql
-        seg['ioff'] = l
-        seg['ilen'] = videoHandler.getChunkSize(ql, 'init', mt)
-        l += seg['ilen']
-        fds += [videoHandler.getInitFileDescriptor(ql, mt)]
 
-        seg['coff'] = l
-        print("dasd", ql, dPlayer.nextSegId, mt)
-        seg['clen'] = videoHandler.getChunkSize(ql, dPlayer.nextSegId, mt)
-        l += seg['clen']
-        fds += [videoHandler.getChunkFileDescriptor(ql, dPlayer.nextSegId, mt)]
-
-        segs += [seg]
-
-    dPlayer.nextSegId += 1
+    segs, fds, l = dPlayer.getNextSeg()
     return actions, segs, fds, l
 
 
 def parseCmdArgument():
+    global options
     MPD_PATH = "/home/abhijit/Downloads/dashed/bbb/media/pens.mpd"
     parser = argparse.ArgumentParser(description = "Viscous test with post")
 
     parser.add_argument('-m', '--mpd-path', dest="mpd_path", default=MPD_PATH, type=str)
+    parser.add_argument('-p', '--groupListenPort', dest='group_port', default=10000, type=int)
+    parser.add_argument('-n', '--neighbourAddress', dest='neighbour_address', default=None, type=str)
 
     options = parser.parse_args()
-    return options
 
-
-def getVideoInfo(options):
-    global videoHandler
-    videoHandler = VideoHandler(options.mpd_path)
 
 def startWeb(port):
-    cmdLine = "chromium-browser --app=\"http://127.0.0.1:"+str(port)+"/index.html\""
-    cmdLine += " --no-user-gesture-required"
+    tmpdir = tempfile.TemporaryDirectory()
+    cmdLine = "chromium-browser"
+#     cmdLine += " --no-user-gesture-required"
     cmdLine += " --incognito"
+    cmdLine += " --user-data-dir=\""+tmpdir.name+"\""
+    cmdLine += " --no-proxy-server"
+    cmdLine += " --autoplay-policy=no-user-gesture-required"
+    cmdLine += " --no-first-run"
+    cmdLine += " --enable-logging"
+    cmdLine += " --log-level=0"
+#     cmdLine += " --start-maximized"
+    cmdLine += " --no-default-browser-check"
+    cmdLine += " --app=\"http://127.0.0.1:"+str(port)+"/index.html\""
 #     cmdLine += " --aggressive-cache-discard"
     os.system(cmdLine)
+    tmpdir.cleanup()
     return
 
 def main():
-    global mainWindow, videoHandler, theQ
     port = 0 #9876
-    options = parseCmdArgument()
-    getVideoInfo(options)
+    parseCmdArgument()
     with MyHttpServer(("",port), MyHandler) as httpd:
         print(httpd.server_address)
         p = mp.Process(target=startWeb, args = (httpd.server_address[1],))
