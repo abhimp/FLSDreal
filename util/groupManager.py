@@ -16,6 +16,9 @@ GROUP_STATE_CONNECTED = 1
 GROUP_STATE_REQ_TO_LEADER = 2
 GROUP_STATE_REQ_TO_OTHER = 3
 
+STATUS_KEY_PARENT = "status"
+STATUS_KEY_PLAYBACKTIME = "p"
+
 class Peer:
     def __init__(self, id, addr=None, playbackTime=-1, **kwargs):
         self.id = id
@@ -67,6 +70,13 @@ class GroupManager:
         if self.me is None:
             return
         self.me.setStatus(playbackTime)
+        #broadcast my state
+        msg = {"typ": "statusUpdate", "meuid": self.me.id,
+                STATUS_KEY_PARENT: {
+                    STATUS_KEY_PLAYBACKTIME: self.me.curPlaybackTime,
+                    },
+                }
+        self.broadcast(msg)
 
     def startGroup(self):
         self.listeningThread = threading.Thread(target=self.startListening)
@@ -101,7 +111,7 @@ class GroupManager:
             "req": self.handleRequest,
             "brd": self.handleRcvBroadcast,
         }
-        cprint.blue("msg", msg[0])
+#         cprint.blue("msg", msg[0])
 
         func = funcs.get(kind, None)
         if func is not None:
@@ -142,7 +152,7 @@ class GroupManager:
             if self.pendingResponses == 0:
                 self.grpState = GROUP_STATE_CONNECTED
                 self.broadcast(nmsg)
-                print(self.peers)
+                cprint.green(self.peers)
 
         else:
             cprint.red(msg)
@@ -163,8 +173,16 @@ class GroupManager:
             uid = msg[0]["meuid"]
             assert uid in self.peers
             p = self.peers[uid]
-            p.ready = False
-            print(self.peers)
+            p.ready = True
+            cprint.green(self.peers)
+        elif typ == "statusUpdate":
+            uid = msg[0]["meuid"]
+            assert uid in self.peers
+            status = msg[0][STATUS_KEY_PARENT]
+            playbackTime = status[STATUS_KEY_PLAYBACKTIME]
+            self.peers[uid].setStatus(playbackTime=playbackTime)
+            cprint.green(self.peers)
+
 
     def newPeer(self, msg, sock):
         nPeer = msg["me"]
@@ -197,7 +215,9 @@ class GroupManager:
     def broadcast(self, msg):
         msg["kind"] = "brd"
         msg["me"] = self.me
-        for sock in self.peerConnections:
+        for id, obj in self.peers.items():
+            if not obj.ready: continue
+            sock = obj.sock
             sock.send(json.dumps(msg, default=encodeObject).encode("utf8"))
 
 #=======================================
