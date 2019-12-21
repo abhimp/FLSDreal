@@ -1,0 +1,132 @@
+<html>
+<script src="dash.all.min.js"></script>
+<!-- <script src="dash.all.debug.js"></script> -->
+<style>
+    video {
+       width: 640px;
+       height: 360px;
+    }
+</style>
+
+   <script type="text/javascript">
+   	function loadVid(){
+   		// video = document.querySelector("video");
+   		var urls = document.getElementById("videoList");
+   		var url = urls.value;
+   		alert(url)
+   		loadPlayer(url)
+   	}
+   	function loadVid2(){
+   		var urls = document.querySelector("input");
+   		var url = urls.value
+   		alert(url)
+   		loadPlayer(url)
+   	}
+   	function loadPlayer(url){
+   		var video = document.querySelector("video");
+   		player = dashjs.MediaPlayer().create();
+   		player.initialize(video, url, true);
+   		// player.on(dashjs.MediaPlayer.events.METRIC_CHANGED, testFunctions.bind(player, this))
+   		player.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, testFunctions)
+   		player.on(dashjs.MediaPlayer.events.FRAGMENT_LOADING_COMPLETED, testFragmentDlCompleted)
+   	}
+    function testFragmentDlCompleted(e){
+        //console.log([e])
+        var request = JSON.stringify(e);
+        console.log("Abhijit Mondal: download_complete: " + request);
+    }
+   	function testFunctions(e){
+   		//console.log([ e]);
+        var dt = player.getBitrateInfoListFor(e.mediaType)[e.newQuality];
+        var pdt = {"oldQuality":e.oldQuality, "newQuality": e.newQuality, "dt":dt};
+   		var t = JSON.stringify(pdt);
+        
+        console.log("Abhijit Mondal: quality_changed: " + t);
+   		if (e.mediaType == "audio"){
+   			document.querySelector("#audiolevel").innerHTML = t
+   		}else{
+   			document.querySelector("#videolevel").innerHTML = t
+   		}
+   	}
+   </script>
+<body>
+	<div>
+	<select id="videoList">
+        <option value="dash/0b4SVyP0IqI/media/vid.mpd">0b4SVyP0IqI</option>
+        <option value="dash/0oly6d0zlZM/media/vid.mpd">0oly6d0zlZM</option>
+        <option value="dash/0yRnOU7s8UE/media/vid.mpd">0yRnOU7s8UE</option>
+        <option value="dash/1s6zy8SB3Is/media/vid.mpd">1s6zy8SB3Is</option>
+        <option value="dash/6gTM-amoosc/media/vid.mpd">6gTM-amoosc</option>
+        <option value="dash/6jIIONaP0p4/media/vid.mpd">6jIIONaP0p4</option>
+        <option value="dash/79g40dq3M9w/media/vid.mpd">79g40dq3M9w</option>
+        <option value="dash/7CgTlg_L_Sw/media/vid.mpd">7CgTlg_L_Sw</option>
+        <option value="dash/7HEKMRfM0vw/media/vid.mpd">7HEKMRfM0vw</option>
+        <option value="dash/8de4XDnJUKk/media/vid.mpd">8de4XDnJUKk</option>
+        <option value="dash/Al53BulB0H0/media/vid.mpd">Al53BulB0H0</option>
+        <option value="dash/b6P4R3y3hH0/media/vid.mpd">b6P4R3y3hH0</option>
+        <option value="dash/b6TIMTvY8hM/media/vid.mpd">b6TIMTvY8hM</option>
+        <option value="dash/b80ShWk_Aro/media/vid.mpd">b80ShWk_Aro</option>
+        <option value="dash/bSd2P0guPFk/media/vid.mpd">bSd2P0guPFk</option>
+        <option value="dash/cCGuvUPSYU4/media/vid.mpd">cCGuvUPSYU4</option>
+        <option value="dash/CidvwfIorPE/media/vid.mpd">CidvwfIorPE</option>
+        <option value="dash/cn8YjC7s7B8/media/vid.mpd">cn8YjC7s7B8</option>
+        <option value="dash/cyMnKoAdbYI/media/vid.mpd">cyMnKoAdbYI</option>
+        <option value="dash/DCYzcX6xzBc/media/vid.mpd">DCYzcX6xzBc</option>
+        <option value="dash/DwgGXGTtObc/media/vid.mpd">DwgGXGTtObc</option>
+        <option value="dash/_GcDktjpp1w/media/vid.mpd">_GcDktjpp1w</option>
+        <option value="dash/G-qd6YFFbc4/media/vid.mpd">G-qd6YFFbc4</option>
+        <option value="dash/gtPIfchgItw/media/vid.mpd">gtPIfchgItw</option>
+        <option value="dash/H0f7poWe8RI/media/vid.mpd">H0f7poWe8RI</option>
+        <option value="dash/hF8OoWadK4Q/media/vid.mpd">hF8OoWadK4Q</option>
+        <option value="dash/IDXTmCwAETM/media/vid.mpd">IDXTmCwAETM</option>
+        <option value="dash/iX1JY2qWq2w/media/vid.mpd">iX1JY2qWq2w</option>
+        <option value="dash/J_JdgAFcDF0/media/vid.mpd">J_JdgAFcDF0</option>
+        <option value="dash/kjRAWql2A3E/media/vid.mpd">kjRAWql2A3E</option>
+        <option value="dash/L_aySa3BvdA/media/vid.mpd">L_aySa3BvdA</option>
+        <option value="dash/llxRaBrZ45s/media/vid.mpd">llxRaBrZ45s</option>
+        <option value="dash/LMWw-X6t8Wc/media/vid.mpd">LMWw-X6t8Wc</option>
+        <option value="dash/M6hRtv_x7gc/media/vid.mpd">M6hRtv_x7gc</option>
+        <option value="dash/mRNWC0piPrQ/media/vid.mpd">mRNWC0piPrQ</option>
+        <option value="dash/mUc_aJYlCfk/media/vid.mpd">mUc_aJYlCfk</option>
+        <option value="dash/n6paI7fs5VM/media/vid.mpd">n6paI7fs5VM</option>
+        <option value="dash/oBLXbrD8Jek/media/vid.mpd">oBLXbrD8Jek</option>
+        <option value="dash/oO4xDieHKe4/media/vid.mpd">oO4xDieHKe4</option>
+        <option value="dash/O_sTdr-Aky0/media/vid.mpd">O_sTdr-Aky0</option>
+        <option value="dash/PqC9g7tkrEc/media/vid.mpd">PqC9g7tkrEc</option>
+        <option value="dash/prNYOW0_kms/media/vid.mpd">prNYOW0_kms</option>
+        <option value="dash/ptWmIvm7UNk/media/vid.mpd">ptWmIvm7UNk</option>
+        <option value="dash/Q8vK7_B2WZ0/media/vid.mpd">Q8vK7_B2WZ0</option>
+        <option value="dash/qBVThFwdYTc/media/vid.mpd">qBVThFwdYTc</option>
+        <option value="dash/qpdU1t2xyok/media/vid.mpd">qpdU1t2xyok</option>
+        <option value="dash/szdW22mqNBQ/media/vid.mpd">szdW22mqNBQ</option>
+        <option value="dash/T2vPDGzxq7o/media/vid.mpd">T2vPDGzxq7o</option>
+        <option value="dash/tQhqs1iFHDQ/media/vid.mpd">tQhqs1iFHDQ</option>
+        <option value="dash/u3rl8NB8xIc/media/vid.mpd">u3rl8NB8xIc</option>
+        <option value="dash/XOst4cXEXko/media/vid.mpd">XOst4cXEXko</option>
+        <option value="dash/xRpLGifRHnI/media/vid.mpd">xRpLGifRHnI</option>
+        <option value="dash/_YAEitUAAZs/media/vid.mpd">_YAEitUAAZs</option>
+        <option value="dash/Yo4oP2eyDtI/media/vid.mpd">Yo4oP2eyDtI</option>
+        <option value="dash/yv25Kx0dKBU/media/vid.mpd">yv25Kx0dKBU</option>
+        <option value="dash/zC1ePnMTRPY/media/vid.mpd">zC1ePnMTRPY</option>
+        <option value="dash/zq7iftN3in4/media/vid.mpd">zq7iftN3in4</option>
+        <option value="dash/ZyBsy5SQxqU/media/vid.mpd">ZyBsy5SQxqU</option>
+
+		<option val="test/1/MultiRate.mpd">test/1/MultiRate.mpd</option>
+		<option val="test/4/vid.mpd">test/4/vid.mpd</option>
+		<option val="test/3/vid.mpd">test/3/vid.mpd</option>
+	</select>
+	<button onclick="loadVid()">Load</button>
+	</div>
+	<div>
+		<input type="text" name="">
+		<button onclick="loadVid2()">Load</button>
+	</div>
+	<div>
+	<p>video: <span id="videolevel"></span></p>
+	<p> audio: <span id="audiolevel"></span></p>
+	</div>
+   <div>
+       <video controls></video>
+   </div>
+</body>
+</html>

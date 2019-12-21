@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Test</title>
+    <!--<script src="jquery.min.js"></script>-->
+    <script>
+
+function fetchData(url, callback){
+    var xhr = new XMLHttpRequest()
+    xhr.open('get', url)
+    xhr.responseType = 'arraybuffer';
+    xhr.onreadystatechange = function() {
+        if (this.readyState == 4){
+            callback(this.response, this.status, this.getResponseHeader("X-OtherInfo"))
+        }
+    }
+    xhr.send()
+}
+
+function initiate(res, code, headerInfo){
+    if (code != 200){
+        alert("error")
+        return
+    }
+    infodata = JSON.parse(headerInfo)
+    console.log(infodata)
+}
+
+function onDocLoad(){
+    fetchData("/initiate", initiate)
+}
+
+document.onreadystatechange = () => {
+    if (document.readyState === 'complete') {
+        onDocLoad()
+    }
+}
+
+//$(document).ready(function(){
+
+//}
+    </script>
+</head>
+<body>
+	<video style="width: 640px; height: 360px; border: solid 1px;"></video>
+</body>
+</html>
