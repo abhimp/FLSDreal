@@ -71,11 +71,6 @@ class SegTemp():
         return self.getParsedUrl(self.initialization, repId)
 
     def getFileUrl(self, repId = None, number = None):
-#         if number >= self.segCnt - 1: #i will wrap it just to make it live. Also skip the last segment as it may be shorter
-#             print("modifiying number:", number, "->", end=" ")
-#             number %= (self.segCnt - 1)
-#             print(number)
-
         return self.getParsedUrl(self.media, repId, number)
 
     @staticmethod

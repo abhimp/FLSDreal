@@ -34,8 +34,10 @@ class VideoPlayerVoD:
             raise OSError("File does not exists!!")
         self.url = url
         self.mpd = mpdparser.parse(url)
+        self.startNumbers = {}
         self.fileSizes = {} #[mt][segid][ql]
         self.initSizes = {}
+        self.repId2MtQl = {}
         self.numSegs = -1
 #         print(self.mpd.bitrates)
         self.readFileSizes()
@@ -48,7 +50,9 @@ class VideoPlayerVoD:
         for mt in ["audio", "video"]:
             vidInfo = self.getMpdObject(mt)
             initSizes = self.initSizes.setdefault(mt, [])
+            self.startNumbers[mt] = vidInfo.startNumber
             for x, ql in enumerate(vidInfo.repIds):
+                self.repId2MtQl[ql] = (mt, x)
                 chk = self.mpd.getInitUrl(ql)
                 try:
                     fs = os.stat(chk)
@@ -57,7 +61,7 @@ class VideoPlayerVoD:
                     initSizes.append(-1)
 
             if self.mpd.getPlaybackDuration() is None: # live
-                return
+                continue
             duration = self.mpd.getPlaybackDuration()
             segId = 0
             fileSizes = self.fileSizes.setdefault(mt, [])
@@ -102,6 +106,31 @@ class VideoPlayerVoD:
             }
         return json.dumps(pop)
 
+    def getChunkSizes(self, segId, rep='*'):
+        segId = int(segId)
+        reps = [rep]
+        if rep == '*':
+            reps = self.repId2MtQl.keys()
+        res = {}
+        for r in reps:
+            mt, ql = self.repId2MtQl[r]
+            size = 0
+            if segId == "init":
+                size = self.initSizes[mt][q]
+            else:
+                try:
+                    num = segId - self.startNumbers[mt][ql]
+                    size = self.fileSizes[mt][num][ql]
+                except Exception as e:
+                    chk = self.mpd.getFileUrl(r, segId)
+                    if not os.path.exists(chk):
+                        break
+#                     print("Chunk", chk, ql, r, segId, num)
+                    fs = os.stat(chk)
+                    size = fs.st_size
+            res.setdefault(mt, []).append([ql, size])
+        return res
+
     def getChunkSize(self, ql, segId, mtype="video"):
         if ql >= len(self.initSizes[mtype]):
             raise Exception("Error")
@@ -127,7 +156,6 @@ class VideoPlayerVoD:
         num = "init"
         return self.getChunkFdQl(ql, num)
 
-
     def getChunkFd(self, chunkName):
         ql, num = chunkName.split('-')
         return self.getChunkFdQl(ql, num)
@@ -139,7 +167,6 @@ class VideoPlayerVoD:
         else:
             num = int(num)
             chk = self.mpd.getFileUrl(ql, num)
-
         try:
             fd = None
             mime = "application/octet-stream"

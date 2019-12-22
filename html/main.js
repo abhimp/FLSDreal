@@ -116,12 +116,14 @@ function getAction(){
     }catch(err){}
 
     xhr.onreadystatechange = function() {
-        if (this.readyState == 4 && this.status == 200) {
+        if (this.readyState == 4) {
             setTimeout(getAction, 1000)
-            var hd = this.getResponseHeader('X-Action-Info')
-            var info = JSON.parse(hd)
-            var body = this.response
-            applyAction(body, info)
+            if(this.status == 200) {
+                var hd = this.getResponseHeader('X-Action-Info')
+                var info = JSON.parse(hd)
+                var body = this.response
+                applyAction(body, info)
+            }
         }
     }
 
@@ -176,11 +178,6 @@ function loadVideo(){
     xhr.send()
 }
 
-function start() {
-//     setUpStart()
-    loadVideo()
-}
-
 function serializeTimerange(timerange) {
     var p = []
     for(var i = 0; i < timerange.length; i++) {
@@ -192,5 +189,10 @@ function serializeTimerange(timerange) {
 function roundd(num, digits) {
     var d = Math.pow(10, digits)
     return Math.round(num*d)/d
+}
+
+function start() {
+//     setUpStart()
+    loadVideo()
 }
 

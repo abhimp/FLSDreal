@@ -85,24 +85,26 @@ class GroupManager:
         self.sem.acquire()
         self.me = Peer(0)
         self.me.ready = True
-        if self.options.neighbour_address is not None:
+        if self.options.neighbourAddress is not None:
             self.connectToNeighbour()
         else:
             self.grpState = GROUP_STATE_CONNECTED #self connected
 
+
+
     def connectToNeighbour(self):
         assert self.msgq != None
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        addr, port = self.options.neighbour_address.split(":")
+        addr, port = self.options.neighbourAddress.split(":")
         s.connect((addr, int(port)))
         self.addSocketToMonitor(s)
         self.grpState = GROUP_STATE_REQ_TO_LEADER
-        msg = {"typ": "join", "port": self.options.group_port}
+        msg = {"typ": "join", "port": self.options.groupPort}
         self.sendRequest(msg, s)
 
     def recvMsg(self, msg, sock):
         if self.me.addr is None:
-            self.me.addr = (sock.getsockname()[0], self.options.group_port)
+            self.me.addr = (sock.getsockname()[0], self.options.groupPort)
 
         kind = msg[0].get("kind", "unknown")
 
@@ -230,7 +232,7 @@ class GroupManager:
         notificationSock.setblocking(0)
 
         # Bind the socket to the port
-        server_address = ('0.0.0.0', self.options.group_port)
+        server_address = ('0.0.0.0', self.options.groupPort)
         cprint.red('starting up on {} port {}'.format(*server_address),
               file=sys.stderr)
         server.bind(server_address)

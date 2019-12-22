@@ -13,11 +13,15 @@ import simulatelivempd as mpdparser
 from mpdHandler import VideoPlayer
 
 class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
-    def goTarget(self, targets):
+    def __init__(self, req, client, server, directory=None):
+        if directory is None:
+            directory = "html"
         self.extraHeaders = {}
+        super().__init__(req, client, server, directory=directory)
 
+    def goTarget(self, targets):
         path = self.server.pathre.sub("/", self.path)
-        func = self.send_err
+        func = self.sendErr
         maxl = 0
         for x, y in targets.items():
             if path.startswith(x):
@@ -28,21 +32,25 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         targets = {
-            "/media/mpd": self.send_mpd,
-            "/media/time": self.send_time,
-            "/media/": self.send_chunk,
-            "/media/mpdjson": self.send_mpd_json,
+            "/media/mpd": self.sendMpd,
+            "/media/time": self.sendTime,
+            "/media/": self.sendChunk,
+            "/media/chunk/": self.sendChunkAbs,
+	    "/media/sizes/": self.sendChunkSizes,
+            "/media/mpdjson": self.sendMpdJson,
         }
         self.goTarget(targets)
 
-    def send_ok_header(self, contentlen, contenttype):
+    def sendOkHeader(self, contentlen, contenttype):
         self.send_response(200)
         self.send_header("Content-type", contenttype)
         self.send_header("Content-Length", contentlen)
         self.send_header("Access-Control-Allow-Origin", "*")
+        for x,y in self.extraHeaders.items():
+            self.send_header(x, y)
         self.end_headers()
 
-    def send_err(self, path, msg=b"NOT FOUND", code=404):
+    def sendErr(self, path, msg=b"NOT FOUND", code=404):
         self.send_response(code)
         self.send_header("Content-type", "text/html")
         self.send_header("Content-Length", len(msg))
@@ -53,27 +61,45 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
     def sendFileSizes(self):
         pass
 
-    def send_mpd(self, path):
+    def sendMpd(self, path):
         videoPlayer = self.server.spclArg
         data = videoPlayer.getXML()
-        self.send_ok_header(len(data), "text/xml")
+        self.sendOkHeader(len(data), "text/xml")
         self.wfile.write(bytes(data, "utf8"))
 
-    def send_mpd_json(self, path):
+    def sendMpdJson(self, path):
         videoPlayer = self.server.spclArg
         data = videoPlayer.getJson()
         data = bytes(data, "utf8")
-        self.send_ok_header(len(data), "application/json")
+        self.sendOkHeader(len(data), "application/json")
         self.wfile.write(data)
 
-    def send_time(self, path):
+    def sendTime(self, path):
         curtime = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        self.send_ok_header(len(curtime), "text/html")
+        self.sendOkHeader(len(curtime), "text/html")
         self.wfile.write(bytes(curtime, "utf8"))
 
-    def send_chunk(self, path):
-        chunkName = path[7:]
+    def sendChunkSizes(self, path):
+        chunkName = path[13:]
+#         print(chunkName)
         videoPlayer = self.server.spclArg
+        ql, segId = chunkName.split('-')
+        if ql == '':
+            ql = '*'
+        sizes = videoPlayer.getChunkSizes(segId, ql)
+        dt = json.dumps(sizes)
+        self.sendOkHeader(len(dt), "application/json")
+        self.wfile.write(bytes(dt, "utf8"))
+
+    def sendChunk(self, path):
+        chunkName = path[7:]
+        rep, segId = chunkName.split("-")
+        videoPlayer = self.server.spclArg
+        fs = {}
+        if segId != 'init':
+            segId = int(segId)
+            fs[segId] = videoPlayer.getChunkSizes(segId)
+            fs[segId+1] = videoPlayer.getChunkSizes(segId+1)
         fd, mime = videoPlayer.getChunkFd(chunkName)
         length = -1
         try:
@@ -87,12 +113,12 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
             except:
                 pass
         assert length >= 0
-        self.send_ok_header(length, mime)
+        self.extraHeaders["X-Chunk-Sizes"] = json.dumps(fs)
+        self.sendOkHeader(length, mime)
         shutil.copyfileobj(fd, self.wfile)
         fd.close()
 
 class MyHttpServer(socketserver.ForkingMixIn, httpserver.HTTPServer):
-# class MyHttpServer(httpserver.HTTPServer):
     def __init__(self, spclArg, *arg, **kwarg):
         self.spclArg = spclArg
         self.pathre = re.compile('//+')

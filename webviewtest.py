@@ -85,14 +85,14 @@ def serveWithHttp(httpd):
 
 def initVideo():
     global dPlayer
-    videoHandler = VideoHandler(options.mpd_path)
+    videoHandler = VideoHandler(options.mpdPath)
     print("Main Loaded")
     dPlayer = DummyPlayer(videoHandler, options)
     return videoHandler.getJson()
 
 def getNextChunks(playbackTime, buffers):
     global dPlayer
-    segDur = dPlayer.videoHandler.vidInfo["segmentDuration"]
+    segDur = dPlayer.videoHandler.getSegmentDur()#.vidInfo["segmentDuration"]
     dPlayer.updateState(playbackTime, buffers)
     print(playbackTime, segDur, buffers, dPlayer.nextSegId, dPlayer.setPlaybackTime)
     actions = {}
@@ -120,14 +120,24 @@ def parseCmdArgument():
     MPD_PATH = "/home/abhijit/Downloads/dashed/bbb/media/pens.mpd"
     parser = argparse.ArgumentParser(description = "Viscous test with post")
 
-    parser.add_argument('-m', '--mpd-path', dest="mpd_path", default=MPD_PATH, type=str)
-    parser.add_argument('-p', '--groupListenPort', dest='group_port', default=10000, type=int)
-    parser.add_argument('-n', '--neighbourAddress', dest='neighbour_address', default=None, type=str)
+    parser.add_argument('-m', '--mpd-path', dest="mpdPath", default=MPD_PATH, type=str)
+    parser.add_argument('-p', '--groupListenPort', dest='groupPort', default=10000, type=int)
+    parser.add_argument('-n', '--neighbourAddress', dest='neighbourAddress', default=None, type=str)
+    parser.add_argument('-b', '--browserCommand', dest='browserCommand', default=None, type=str)
 
     options = parser.parse_args()
 
 
+def startWebThroughCommand(url):
+    cmdLine = options.browserCommand
+    cmdLine += f" \"{url}\""
+    os.system(cmdLine)
+
 def startWeb(port):
+    url = "http://127.0.0.1:"+str(port)+"/index.html"
+    if options is not None and options.browserCommand is not None:
+        startWebThroughCommand(url)
+        return
     tmpdir = tempfile.TemporaryDirectory()
     cmdLine = "chromium-browser"
 #     cmdLine += " --no-user-gesture-required"
@@ -140,7 +150,7 @@ def startWeb(port):
     cmdLine += " --log-level=0"
 #     cmdLine += " --start-maximized"
     cmdLine += " --no-default-browser-check"
-    cmdLine += " --app=\"http://127.0.0.1:"+str(port)+"/index.html\""
+    cmdLine += f" --app=\"{url}\""
 #     cmdLine += " --aggressive-cache-discard"
     os.system(cmdLine)
     tmpdir.cleanup()
