@@ -35,7 +35,7 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
             "/media/mpd": self.sendMpd,
             "/media/time": self.sendTime,
             "/media/": self.sendChunk,
-#             "/media/chunk/": self.sendChunkAbs,
+            "/media/chunk/": self.sendChunkAbs,
 	    "/media/sizes/": self.sendChunkSizes,
             "/media/mpdjson": self.sendMpdJson,
         }
@@ -95,12 +95,40 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
         chunkName = path[7:]
         rep, segId = chunkName.split("-")
         videoPlayer = self.server.spclArg
+        fd, mime = videoPlayer.getChunkFd(chunkName)
+        length = -1
+        try:
+            length = fd.length
+        except:
+            try:
+                cur = fd.tell()
+                fd.seek(0, 2)
+                length = fd.tell()
+                fd.seek(cur, 0)
+            except:
+                pass
+        assert length >= 0
+        self.sendOkHeader(length, mime)
+        shutil.copyfileobj(fd, self.wfile)
+        fd.close()
+
+    def sendChunkAbs(self, path):
+        chunkName = path[13:]
+        chks = chunkName.split("-")
+        if len(chks) != 3:
+            return self.sendErr(path)
+        mt, ql, segId = chks
+        ql = int(ql)
+        videoPlayer = self.server.spclArg
         fs = {}
+        fd, mime = None, None
         if segId != 'init':
             segId = int(segId)
             fs[segId] = videoPlayer.getChunkSizes(segId)
             fs[segId+1] = videoPlayer.getChunkSizes(segId+1)
-        fd, mime = videoPlayer.getChunkFd(chunkName)
+            fd, mime = videoPlayer.getChunkFileDescriptor(ql, segId, mt)
+        else:
+            fd, mime = videoPlayer.getInitFileDescriptor(ql, mt)
         length = -1
         try:
             length = fd.length

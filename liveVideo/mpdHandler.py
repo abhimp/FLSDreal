@@ -119,10 +119,11 @@ class VideoPlayerVoD:
                 size = self.initSizes[mt][q]
             else:
                 try:
-                    num = segId - self.startNumbers[mt][ql]
+                    num = segId
                     size = self.fileSizes[mt][num][ql]
                 except Exception as e:
-                    chk = self.mpd.getFileUrl(r, segId)
+                    actNum = segId + self.startNumbers[mt][ql]
+                    chk = self.mpd.getFileUrl(r, actNum)
                     if not os.path.exists(chk):
                         break
 #                     print("Chunk", chk, ql, r, segId, num)

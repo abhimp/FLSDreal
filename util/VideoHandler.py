@@ -31,6 +31,8 @@ class VideoHandler:
         self.drift = time - int(sysTime)
 
     def getChunkUrl(self, ql, num, typ):
+        url = urljoin(self.mpdUrl, f"chunk/{typ}-{ql}-{num}")
+        return url
         rep = self.infos[typ]["repIds"][ql]
         actNum = self.infos[typ]["startNumber"][ql] + num if num != "init" else num
         url = urljoin(self.mpdUrl, f"{rep}-{actNum}")
@@ -61,7 +63,7 @@ class VideoHandler:
             segId = int(segId)
             for mt, chunks in info.items():
                 for ch in chunks:
-                    num = segId - self.infos[mt]['startNumber'][ch[0]]
+                    num = segId
                     self.chunkSizes.setdefault(mt, {}).setdefault(num, {})[ch[0]] = ch[1]
 
 
@@ -72,7 +74,7 @@ class VideoHandler:
         chunkSizes = self.chunkSizes.setdefault(typ, {}).setdefault(num, {})
         if ql in chunkSizes:
             return chunkSizes[ql]
-        actNum = self.infos[typ]['startNumber'][ql] + num
+        actNum = num
         sizeUrl = urljoin(self.mpdUrl, f"sizes/-{actNum}")
         print(sizeUrl)
         fs = urlopen(sizeUrl).read().decode()
