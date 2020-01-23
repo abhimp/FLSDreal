@@ -140,7 +140,6 @@ def startWeb(port):
         return
     tmpdir = tempfile.TemporaryDirectory()
     cmdLine = "chromium-browser"
-#     cmdLine += " --no-user-gesture-required"
     cmdLine += " --incognito"
     cmdLine += " --user-data-dir=\""+tmpdir.name+"\""
     cmdLine += " --no-proxy-server"
@@ -148,10 +147,8 @@ def startWeb(port):
     cmdLine += " --no-first-run"
     cmdLine += " --enable-logging"
     cmdLine += " --log-level=0"
-#     cmdLine += " --start-maximized"
     cmdLine += " --no-default-browser-check"
     cmdLine += f" --app=\"{url}\""
-#     cmdLine += " --aggressive-cache-discard"
     os.system(cmdLine)
     tmpdir.cleanup()
     return
