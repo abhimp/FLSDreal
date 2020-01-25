@@ -158,7 +158,6 @@ class GroupManager:
 
         else:
             cprint.red(msg)
-#         elif self.grpState == GROUP_STATE_REQ_TO_OTHER
 
     def handleRequest(self, msg, sock):
         typ = msg[0].get("typ", "")
@@ -223,18 +222,24 @@ class GroupManager:
             sock.send(json.dumps(msg, default=encodeObject).encode("utf8"))
 
 #=======================================
+    #
+    # Start listening request from other neighbour
+    # It is supposed to run in a seperate thread
     def startListening(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.setblocking(0)
 
-        self.notificationPipe, notificationSock = socket.socketpair()
-        notificationSock.setblocking(0)
+        self.notificationPipe, notificationSock = socket.socketpair() # creating local pipe
+                # to communicate with thread. I choose local socket over queue because it
+                # bidirectional. notificationSock is for this thread and notificationPipe
+                # main program.
+        notificationSock.setblocking(0) # making thread end point no blocking as we are
+                # going to poll using select call
 
-        # Bind the socket to the port
+        # Bind the socket to the port. expect new connections from other peers
         server_address = ('0.0.0.0', self.options.groupPort)
-        cprint.red('starting up on {} port {}'.format(*server_address),
-              file=sys.stderr)
+        cprint.red('starting up on {} port {}'.format(*server_address), file=sys.stderr)
         server.bind(server_address)
 
         # Listen for incoming connections
@@ -242,44 +247,40 @@ class GroupManager:
 
         self.server = server
 
-        inputs = [server]
-        outputs = []
-        errors = []
-
         self.msgq = {}
 
         self.sem.release()
         while server is not None:
-            inputs = [server, notificationSock] + self.peerConnections
-            readable, writable, exceptions = select.select(inputs, outputs, inputs)
+            inputs = [server, notificationSock] + self.peerConnections[:]
+            readable, writable, exceptions = select.select(inputs, [], []) # Wait to for some data
 
             if notificationSock in readable:
                 while True:
                     try:
-                        notificationSock.recv(512)
+                        notificationSock.recv(512) # When we add a extra connection to the
+                            # self.peerConnections from main thread, we need to update get out
+                            # of select call once. Otherwise, select wont poll the new socket.
                     except BlockingIOError:
                         break
                 continue
 
             for s in readable:
-                if s is server:
+                if s is server: # this is boiler plate server acceptance code.
                     try:
                         con, addr = s.accept()
                     except Exception:
                         server = None
                         break
                     print("new con req from", addr)
-                    self.addSocketToMonitor(con)
+                    self.addSocketToMonitor(con) # Socket monitor is a special type of deserializer
+                        # it serialize input data in form of [json_object, byte_array].
                 else:
                     dt = s.recv(1024)
                     if dt:
-#                         cprint.green("recv len", len(dt), dt)
                         self.msgq[s].append(dt)
                         while True:
                             p = self.msgq[s].getObject()
-#                             cprint.green(p)
                             if p is None:
-#                                 cprint.green(self.msgq[s].getState())
                                 break
                             self.recvMsg(p, s)
                     else:

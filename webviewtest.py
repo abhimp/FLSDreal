@@ -1,3 +1,5 @@
+# Although it is called webviewtest it is the main program
+# It directly dependendent on the VideoHandler and DummyPlayer
 import argparse
 import threading
 import queue
@@ -6,19 +8,12 @@ import http.server as httpserver
 import shutil
 import time
 import multiprocessing as mp
-from urllib.request import urlopen
 import os
 import tempfile
 
 
 from util.VideoHandler import VideoHandler
 from util.DummyPlayer import DummyPlayer
-
-
-INITIALCSS = """
-body{color: black !important;}
-video{width: 98vw;margin: 1vw 1vw 1vw 1vw;background-color: black;}
-"""
 
 
 videoHandler = None
