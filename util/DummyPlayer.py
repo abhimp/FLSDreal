@@ -1,9 +1,10 @@
 import io
 from urllib.request import urlopen
-from .groupManager import GroupManager as GroupMan
+
+from . import groupManagerRpyc as GroupMan
 
 
-class DummyPlayer:
+class DummyPlayer(GroupMan.RpcPeer):
     def __init__(self, videoHandler, options):
         self.playbackTime = 0
         self.setPlaybackTime = 0
@@ -13,6 +14,9 @@ class DummyPlayer:
         self.videoHandler = videoHandler
         self.options = options
         self.grpMan = None
+
+        self.neighbours = {}
+        self.myId = 0
 
         self.init()
 
@@ -55,8 +59,13 @@ class DummyPlayer:
         return segs, fds, l
 
     def startGroup(self):
-        self.grpMan = GroupMan(self.options)
-        self.grpMan.startGroup()
+        self.grpMan = GroupMan.RpcManager(self.options.groupPort, self)
+        if self.options.neighbourAddress is not None:
+            addr, port = self.options.neighbourAddress.split(":")
+            peer = self.grpMan.connectTo((addr, int(port)))
+            neighbours, pid = peer.hello()
+            self.myId = pid
+            print(neighbours)
 
     def shutdown(self):
         if self.grpMan is not None:

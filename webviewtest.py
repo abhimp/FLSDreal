@@ -144,6 +144,7 @@ def startWeb(port):
     cmdLine += " --log-level=0"
     cmdLine += " --no-default-browser-check"
     cmdLine += f" --app=\"{url}\""
+    print(cmdLine)
     os.system(cmdLine)
     tmpdir.cleanup()
     return

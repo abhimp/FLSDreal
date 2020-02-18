@@ -6,6 +6,7 @@ import json
 
 from . import cprint
 from . import ipc
+from . import groupManagerRpyc as GroupMan
 
 
 RES_STATUS_OK = 200
@@ -19,28 +20,16 @@ GROUP_STATE_REQ_TO_OTHER = 3
 STATUS_KEY_PARENT = "status"
 STATUS_KEY_PLAYBACKTIME = "p"
 
-class Peer:
-    def __init__(self, id, addr=None, playbackTime=-1, **kwargs):
-        self.id = id
-        self.addr = addr
-        self.curPlaybackTime = playbackTime
-        self.sock = None
-        self.ready = False
+class GroupPeer(GroupMan.RpcPeer):
+    def __init__(self):
+        self.id = 0
+        self.curPlaybackTime = 0
 
     def setStatus(self, playbackTime):
         self.curPlaybackTime = playbackTime
 
-    def getDict(self):
-        return {
-            "id" : self.id,
-            "addr": self.addr,
-            "playbackTime": self.curPlaybackTime,
-            }
-
-    def __repr__(self):
-        return "<Peer " \
-                + f"{self.getDict()}" \
-                + ">"
+    def exposed_addMe(self):
+        return {"id" : len(
 
 def encodeObject(obj):
     getDict = getattr(obj, "getDict", None)
@@ -50,256 +39,13 @@ def encodeObject(obj):
 
 class GroupManager:
     def __init__(self, options):
-        self.otherUsers = []
         self.options = options
-        self.peerConnections = []
-
-        self.chunkConnections = []
-        self.server = None
-        self.peers = {}
-        self.me = None
-        self.msgq = None
-
-        self.grpState = GROUP_STATE_NOT_CONNECTED
-        self.pendingResponses = 0
-
-        self.sem = threading.Semaphore(0)
-        self.notificationPipe = None
-
-    def updateMyState(self, playbackTime, buffers):
-        if self.me is None:
-            return
-        self.me.setStatus(playbackTime)
-        #broadcast my state
-        msg = {"typ": "statusUpdate", "meuid": self.me.id,
-                STATUS_KEY_PARENT: {
-                    STATUS_KEY_PLAYBACKTIME: self.me.curPlaybackTime,
-                    },
-                }
-        self.broadcast(msg)
+        self.grpMan = None
+        self.me = GroupPeer()
 
     def startGroup(self):
-        self.listeningThread = threading.Thread(target=self.startListening)
-        self.listeningThread.start()
-
-        self.sem.acquire()
-        self.me = Peer(0)
-        self.me.ready = True
+        self.grpMan = GroupMan.RpcManager(self.options.groupPort)
         if self.options.neighbourAddress is not None:
-            self.connectToNeighbour()
-        else:
-            self.grpState = GROUP_STATE_CONNECTED #self connected
+            addr, port = self.options.neighbourAddress.split(":")
+            peer = self.grpMan.connectTo((addr, int(port)))
 
-
-
-    def connectToNeighbour(self):
-        assert self.msgq != None
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        addr, port = self.options.neighbourAddress.split(":")
-        s.connect((addr, int(port)))
-        self.addSocketToMonitor(s)
-        self.grpState = GROUP_STATE_REQ_TO_LEADER
-        msg = {"typ": "join", "port": self.options.groupPort}
-        self.sendRequest(msg, s)
-
-    def recvMsg(self, msg, sock):
-        if self.me.addr is None:
-            self.me.addr = (sock.getsockname()[0], self.options.groupPort)
-
-        kind = msg[0].get("kind", "unknown")
-
-        funcs = {
-            "res": self.handleResponse,
-            "req": self.handleRequest,
-            "brd": self.handleRcvBroadcast,
-        }
-#         cprint.blue("msg", msg[0])
-
-        func = funcs.get(kind, None)
-        if func is not None:
-            func(msg, sock)
-
-    def handleResponse(self, msg, sock):
-        status = msg[0].get("status", RES_STATUS_UNKNOWN)
-        if status != RES_STATUS_OK:
-            cprint.red("!!ERROR!!", msg[0])
-            return
-        typ = msg[0].get("typ", None)
-        assert typ != None
-        if self.grpState == GROUP_STATE_REQ_TO_LEADER:
-            assert typ == "newjoin"
-            memsg = msg[0]
-            self.me.id = memsg["uid"]
-            leader = memsg["myuid"]
-            nmsg = {"typ": "newpeer", "me": self.me}
-            for peer in memsg["users"]:
-                s = sock
-                if peer["id"] != leader:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-                    s.connect(peer["addr"])
-                    self.addSocketToMonitor(s)
-                self.sendRequest(nmsg, s)
-                self.pendingResponses += 1
-            self.grpState = GROUP_STATE_REQ_TO_OTHER
-
-        elif self.grpState == GROUP_STATE_REQ_TO_OTHER:
-            assert self.pendingResponses > 0
-            assert typ == "newpeer"
-            peer = msg[0]["me"]
-            self.peers[peer["id"]] = Peer(**peer)
-            self.peers[peer["id"]].ready = True
-            self.peers[peer["id"]].sock = sock
-            self.pendingResponses -= 1
-            nmsg = {"typ": "readyForGroup", "meuid": self.me.id} #broadcast
-            if self.pendingResponses == 0:
-                self.grpState = GROUP_STATE_CONNECTED
-                self.broadcast(nmsg)
-                cprint.green(self.peers)
-
-        else:
-            cprint.red(msg)
-
-    def handleRequest(self, msg, sock):
-        typ = msg[0].get("typ", "")
-        if typ == "join": #synchronisation i.e. portable
-            self.newPlayer(msg[0], sock)
-
-        elif typ == "newpeer":
-            self.newPeer(msg[0], sock)
-
-    def handleRcvBroadcast(self, msg, sock):
-#         cprint.cyan(msg[0], sock)
-        typ = msg[0].get("typ", "unknown")
-        if typ == "readyForGroup":
-            uid = msg[0]["meuid"]
-            assert uid in self.peers
-            p = self.peers[uid]
-            p.ready = True
-            cprint.green(self.peers)
-        elif typ == "statusUpdate":
-            uid = msg[0]["meuid"]
-            assert uid in self.peers
-            status = msg[0][STATUS_KEY_PARENT]
-            playbackTime = status[STATUS_KEY_PLAYBACKTIME]
-            self.peers[uid].setStatus(playbackTime=playbackTime)
-            cprint.green(self.peers)
-
-
-    def newPeer(self, msg, sock):
-        nPeer = msg["me"]
-        self.peers[nPeer["id"]] = Peer(**nPeer)
-        self.peers[nPeer["id"]].sock = sock
-        nmsg = {"typ": "newpeer", "res": "accept", "me": self.me}
-        self.responseSuccess(nmsg, sock)
-
-    def newPlayer(self, msg, sock):
-        port = msg.get("port")
-        ip = sock.getpeername()[0]
-        uid = max([x.id for x in list(self.peers.values()) + [self.me]]) + 1
-        nmsg = {"typ": "newjoin", "join_res": "accept", "users": list(self.peers.values()) + [self.me], "uid": uid, "myuid": self.me.id}
-        self.responseSuccess(nmsg, sock)
-
-    def shutdown(self):
-        if self.server is not None:
-            self.server.shutdown(socket.SHUT_RDWR)
-            self.listeningThread.join()
-
-    def responseSuccess(self, msg, sock):
-        msg["status"] = RES_STATUS_OK
-        msg["kind"] = "res"
-        sock.send(json.dumps(msg, default=encodeObject).encode("utf8"))
-
-    def sendRequest(self, msg, sock):
-        msg["kind"] = "req"
-        sock.send(json.dumps(msg, default=encodeObject).encode("utf8"))
-
-    def broadcast(self, msg):
-        msg["kind"] = "brd"
-        msg["me"] = self.me
-        for id, obj in self.peers.items():
-            if not obj.ready: continue
-            sock = obj.sock
-            sock.send(json.dumps(msg, default=encodeObject).encode("utf8"))
-
-#=======================================
-    #
-    # Start listening request from other neighbour
-    # It is supposed to run in a seperate thread
-    def startListening(self):
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.setblocking(0)
-
-        self.notificationPipe, notificationSock = socket.socketpair() # creating local pipe
-                # to communicate with thread. I choose local socket over queue because it
-                # bidirectional. notificationSock is for this thread and notificationPipe
-                # main program.
-        notificationSock.setblocking(0) # making thread end point no blocking as we are
-                # going to poll using select call
-
-        # Bind the socket to the port. expect new connections from other peers
-        server_address = ('0.0.0.0', self.options.groupPort)
-        cprint.red('starting up on {} port {}'.format(*server_address), file=sys.stderr)
-        server.bind(server_address)
-
-        # Listen for incoming connections
-        server.listen(5)
-
-        self.server = server
-
-        self.msgq = {}
-
-        self.sem.release()
-        while server is not None:
-            inputs = [server, notificationSock] + self.peerConnections[:]
-            readable, writable, exceptions = select.select(inputs, [], []) # Wait to for some data
-
-            if notificationSock in readable:
-                while True:
-                    try:
-                        notificationSock.recv(512) # When we add a extra connection to the
-                            # self.peerConnections from main thread, we need to update get out
-                            # of select call once. Otherwise, select wont poll the new socket.
-                    except BlockingIOError:
-                        break
-                continue
-
-            for s in readable:
-                if s is server: # this is boiler plate server acceptance code.
-                    try:
-                        con, addr = s.accept()
-                    except Exception:
-                        server = None
-                        break
-                    print("new con req from", addr)
-                    self.addSocketToMonitor(con) # Socket monitor is a special type of deserializer
-                        # it serialize input data in form of [json_object, byte_array].
-                else:
-                    dt = s.recv(1024)
-                    if dt:
-                        self.msgq[s].append(dt)
-                        while True:
-                            p = self.msgq[s].getObject()
-                            if p is None:
-                                break
-                            self.recvMsg(p, s)
-                    else:
-                        self.removeSocketFromMonitor(s)
-                        cprint.red("closing", s)
-
-            for s in exceptions:
-                if s in inputs:
-                    self.removeSocketFromMonitor(s)
-                print("closing", s)
-                s.close()
-        cprint.red("Closed")
-
-    def addSocketToMonitor(self, con):
-        self.peerConnections.append(con)
-        self.msgq[con] = ipc.RecvData()
-        con.setblocking(0)
-        self.notificationPipe.send(b"p")
-
-    def removeSocketFromMonitor(self, sock):
-        self.peerConnections.remove(sock)
-        del self.msgq[sock]
