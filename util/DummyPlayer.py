@@ -1,7 +1,8 @@
 import io
 from urllib.request import urlopen
 
-from . import groupManagerRpyc as GroupMan
+from . import groupRpyc as GroupMan
+from . import cprint
 
 
 class DummyPlayer(GroupMan.RpcPeer):
@@ -18,6 +19,8 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.neighbours = {}
         self.myId = 0
 
+        super().__init__()
+
         self.init()
 
     def init(self):
@@ -30,7 +33,9 @@ class DummyPlayer(GroupMan.RpcPeer):
     def updateState(self, playbackTime, buffers):
         if self.grpMan is None:
             return
-        self.grpMan.updateMyState(playbackTime, buffers)
+        for x, y in self.neighbours.items():
+            y.exposed_curStat(playbackTime)
+            pass
 
     def getNextSeg(self):
         segs = []
@@ -60,13 +65,45 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def startGroup(self):
         self.grpMan = GroupMan.RpcManager(self.options.groupPort, self)
+        self.grpMan.start()
+        self.grpMan.addPeerRemovedCB(self.peerRemoved)
         if self.options.neighbourAddress is not None:
             addr, port = self.options.neighbourAddress.split(":")
             peer = self.grpMan.connectTo((addr, int(port)))
-            neighbours, pid = peer.hello()
-            self.myId = pid
-            print(neighbours)
+            neighbours, mid, rid = peer.addme()
+            self.myId = mid
+            peer.id = rid
+            self.neighbours[rid] = peer
+
+            for pid, addr in neighbours.items():
+                rpeer = self.grpMan.connectTo(addr)
+                rid = rpeer.hello(self.myId)
+                assert rid == pid
+                rpeer.id = pid
+                self.neighbours[pid] = rpeer
+            cprint.blue(self.neighbours)
 
     def shutdown(self):
         if self.grpMan is not None:
             self.grpMan.shutdown()
+
+    def peerRemoved(self, peer):
+        cprint.cyan(peer, peer.id)
+        del self.neighbours[peer.id]
+
+#===========================================
+    def exposed_addme(self, rpeer):
+        yid = len(self.neighbours) + 1
+        neighbours = {x:y.getAddr() for x,y in self.neighbours.items()}
+        rpeer.id = yid
+        self.neighbours[yid] = rpeer
+        return neighbours, yid, self.myId
+
+    def exposed_hello(self, rpeer, rid):
+        rpeer.id = rid
+        self.neighbours[rid] = rpeer
+        return self.myId
+
+    def exposed_curStat(self, rpeer, playbackTime):
+        cprint.cyan(rpeer.id, f"playbackTime={playbackTime}")
+

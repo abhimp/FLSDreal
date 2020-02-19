@@ -9,6 +9,7 @@ import traceback as tb
 from . import cprint
 from . import ipc
 
+
 class CallableStubObj:
     def __init__(self, name, origFunc):
         self.name = name
@@ -37,6 +38,9 @@ class RpcPeer:
         self.callId += 1
         self.lock.release()
         return clid
+
+    def getAddr(self):
+        return self.addr
 
     def setRpc(self, stub, cb):
         stubWithMethod = {x: CallableStubObj(x, self.call) for x in stub}
@@ -79,6 +83,9 @@ class RpcPeer:
         sem.release()
 
     def __getattr__(self, name):
+        if self.rpcs is None:
+            raise AttributeError()
+#         cprint.red(name)
         if name in self.rpcs:
             return self.rpcs[name]
         if "exposed_" + name in self.rpcs:
@@ -101,6 +108,9 @@ class RpcManager:
         self.neighbours = {}
         self.peerConnections = []
         self.server = None
+        self.msgq = None
+
+        self.peerRemovedCB = None
 
         self.newConnectionLock = threading.Lock()
         self.newConnectionSem = threading.Semaphore(0)
@@ -251,7 +261,7 @@ class RpcManager:
 
     def handleCall(self, msg, con):
         assert con in self.neighbours
-#         cprint.magenta(msg[0], len(msg[1]))
+        peer = self.neighbours[con]
         rpc = pickle.loads(msg[1]) #0: func name, 1: args, 2: kwargs, 3: blob
         fname, args, kwargs, blob = rpc
         rmsg = {"kind": "return"}
@@ -259,7 +269,7 @@ class RpcManager:
         error = None
         try:
             func = self.stubFunctions[fname]
-            ret = func(*args, **kwargs)
+            ret = func(peer, *args, **kwargs)
         except Exception:
             track = tb.format_exc()
             error = track
@@ -287,6 +297,9 @@ class RpcManager:
         self.peerConnections.remove(sock)
         if self.newConnectionSocket == sock:
             self.newConnectionSem.release()
+        if self.peerRemovedCB is not None and callable(self.peerRemovedCB):
+            peer = self.neighbours[sock]
+            self.peerRemovedCB(peer)
         del self.msgq[sock]
         del self.neighbours[sock]
 
@@ -312,6 +325,10 @@ class RpcManager:
         if self.server is not None:
             self.server.shutdown(socket.SHUT_RDWR)
             self.listeningThread.join()
+
+    def addPeerRemovedCB(self, cb):
+        assert callable(cb)
+        self.peerRemovedCB = cb
 
 
 
