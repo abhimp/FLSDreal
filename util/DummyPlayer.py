@@ -144,8 +144,11 @@ class DummyPlayer(GroupMan.RpcPeer):
         return 0 #TODO add algo
 
     def selectNextDownloader(self, segId):
-        pass
-        #TODO
+        tmp = list(self.neighbours.keys())
+        nextDownloader = self.gid
+        if len(tmp) > 0:
+            nextDownloader = tmp[0] #TODO call selectNextDownloader
+        return nextDownloader
 
     def downloadAsTeamplayer(self):
         while True:
@@ -156,10 +159,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
             if sleepTime > 0:
                 time.sleep(sleepTime)
-            tmp = list(self.neighbours.keys())
-            nextDownloader = self.gid
-            if len(tmp) > 0:
-                nextDownloader = tmp[0] #TODO call selectNextDownloader
+            nextDownloader = self.selectNextDownloader()
             self.broadcast(self.exposed_setNextDownloader, segId+1, nextDownloader)
 
     def downloadFromDownloadQueue(self):
@@ -170,6 +170,8 @@ class DummyPlayer(GroupMan.RpcPeer):
                 ql = self.selectGroupQl(segId)
             self.loadChunk(ql, segId, "video")
 
+    # Entry point from the player. return segment if available other wise return null
+    # Player might stall if returned without any segment.
     def getNextSeg(self):
         segs = []
         fds = []
