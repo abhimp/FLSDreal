@@ -1,9 +1,58 @@
 import io
 from urllib.request import urlopen
+import queue
+import threading
+import time
+import json
 
 from . import groupRpyc as GroupMan
 from . import cprint
+from . import nestedObject
 
+class AutoUpdateObject():
+    def __init__(self, callback):
+        self.__int_values = {}
+        self.__int_cb = callback
+        self.__int_autoCommit = False
+        self.__int_readonly = False
+        self.__int_changed = set()
+#         self.__setattr__ = self.__setattr
+    def __getattr__(self, name):
+        if name.startswith("__int_") or name.startswith("_AutoUpdateObject"):
+            raise AttributeError(f"{name} not found")
+        if name not in self.__int_values:
+            raise AttributeError(f"{name} not found")
+        return self.__int_values[name]
+    def __setattr__(self, name, val):
+        if name.startswith("__int_") or name.startswith("_AutoUpdateObject"):
+            super().__setattr__(name, val)
+            return
+        if self.__int_readonly:
+            raise PermissionError("Readonly object")
+        self.__int_values[name] = val
+        self.__int_changed.add(name)
+        if self.__int_autoCommit:
+            self.commit()
+    def update(self, kwargs):
+        self.__int_values.update(kwargs)
+#         cprint.blue("status updated", self.__int_values)
+    def setAutoCommit(self, autoCommit = True):
+        if self.__int_cb is not None and callable(self.__int_cb):
+            return
+        self.__int_autoCommit = autoCommit
+    def setReadOnly(self, readonly=True):
+        self.__int_readonly = readonly
+    def commit(self):
+        if self.__int_readonly:
+            raise PermissionError("Readonly object")
+        if self.__int_cb is not None and callable(self.__int_cb):
+            return
+        keys = self.__int_changed.copy()
+        self.__int_changed.clear()
+        self.__int_cb({x: self.__int_values[x] for x in keys})
+
+def toDict(**kw):
+    return kw
 
 class DummyPlayer(GroupMan.RpcPeer):
     def __init__(self, videoHandler, options):
@@ -14,10 +63,19 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.buffer = []
         self.videoHandler = videoHandler
         self.options = options
-        self.grpMan = None
+        self.status = None
 
+        self.grpMan = None
+        self.groupReady = False
         self.neighbours = {}
-        self.myId = 0
+        self.peerIds = set()
+        self.gid = 0
+        self.groupStartedFromSegId = -1
+        self.iamStarter = False
+        self.downloadQueue = queue.PriorityQueue()
+        self.teamplayerQueue = queue.Queue()
+
+        self.groupInfo = None
 
         super().__init__()
 
@@ -30,19 +88,100 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.nextSegId = int(self.setPlaybackTime/dur)
         self.startSegment = self.nextSegId
 
+    def initGroupInfo(self):
+        self.groupInfo = nestedObject.Obj(toDict(sizes={}, chunkInfo={}, downloader={}), nested=False)
+        self.groupInfo.sizes.update(self.videoHandler.chunkSizes)
+
+
     def updateState(self, playbackTime, buffers):
         if self.grpMan is None:
             return
-        for x, y in self.neighbours.items():
-            y.exposed_curStat(playbackTime)
-            pass
+        self.status.playbackTime = playbackTime
+#         self.status.commit()
+
+    def getChunkSize(ql, num, mt):
+        if mt == "audio":
+            return self.videoHandler.getChunkSize(0, num, mt) #forcing ql to 0
+        assert False
+
+    def getGroupVidQuality(self):
+        if self.iamStarter:
+            self.iamStarter = False
+            self.startGroupRelatedThreads(self.nextSegId)
+            self.broadcast(self.exposed_setNextDownloader, self.nextSegId, self.gid)
+        ql = self.videoHandler.getCachedQuality(self.nextSegId, "video")
+        if len(ql) > 0:
+            return max(ql)
+        return -1
+
+    def startGroupRelatedThreads(self, segId):
+        assert not self.groupReady
+        self.initGroupInfo()
+        self.groupStartedFromSegId = segId
+        self.groupReady = True
+        self.groupThread = threading.Thread(target=self.downloadAsTeamplayer); self.groupThread.start()
+        self.groupThread = threading.Thread(target=self.downloadFromDownloadQueue); self.groupThread.start()
+#         cprint.magenta("GROUP STARTED")
+
+    def loadChunk(self, ql, num, typ):
+        num = int(num)
+        qls = self.videoHandler.getCachedQuality(num, typ)
+        assert ql not in qls
+
+        url = self.videoHandler.getChunkUrl(ql, num, typ)
+        print(url, num)
+        res = urlopen(url)
+        dt = res.getheader('X-Chunk-Sizes')
+        if dt is not None:
+            dt = json.loads(dt)
+            self.videoHandler.updateChunkSizes(dt)
+            self.broadcast(self.exposed_updateChunkSizes, dt)
+        self.videoHandler.addChunk(ql, num, typ, res.read())
+        self.broadcast(self.exposed_downloaded, num, ql)
+
+
+    def selectGroupQl(self, segId):
+        return 0 #TODO add algo
+
+    def selectNextDownloader(self, segId):
+        pass
+        #TODO
+
+    def downloadAsTeamplayer(self):
+        while True:
+            action = self.teamplayerQueue.get()
+            cprint.magenta("recvd action", action)
+            segId = action[0]
+            self.downloadQueue.put((segId, "*"))
+            sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
+            if sleepTime > 0:
+                time.sleep(sleepTime)
+            tmp = list(self.neighbours.keys())
+            nextDownloader = self.gid
+            if len(tmp) > 0:
+                nextDownloader = tmp[0] #TODO call selectNextDownloader
+            self.broadcast(self.exposed_setNextDownloader, segId+1, nextDownloader)
+
+    def downloadFromDownloadQueue(self):
+        while True:
+            segId, ql = self.downloadQueue.get()
+            cprint.magenta("downloading task recvd for {segId}, {ql}")
+            if ql == "*": #i.e. run quality selection
+                ql = self.selectGroupQl(segId)
+            self.loadChunk(ql, segId, "video")
 
     def getNextSeg(self):
         segs = []
         fds = []
         l = 0
-        ql = 0
+        qualities = {"audio": 0, "video": 0}
+        if self.iamStarter or (self. groupReady and self.nextSegId >= self.groupStartedFromSegId):
+            ql = self.getGroupVidQuality()
+            if ql < 0:
+                return [], [], 0
+            qualities["video"] = ql
         for mt in ["audio", "video"]:
+            ql = qualities[mt]
             seg = {}
             seg['seg'] = self.nextSegId
             seg['type'] = mt
@@ -63,6 +202,10 @@ class DummyPlayer(GroupMan.RpcPeer):
             self.startGroup()
         return segs, fds, l
 
+
+#===========================================
+#   Group handler starts
+#===========================================
     def startGroup(self):
         self.grpMan = GroupMan.RpcManager(self.options.groupPort, self)
         self.grpMan.start()
@@ -71,39 +214,97 @@ class DummyPlayer(GroupMan.RpcPeer):
             addr, port = self.options.neighbourAddress.split(":")
             peer = self.grpMan.connectTo((addr, int(port)))
             neighbours, mid, rid = peer.addme()
-            self.myId = mid
-            peer.id = rid
+            self.gid = mid
+            peer.gid = rid
             self.neighbours[rid] = peer
+            self.peerIds.add(mid)
+            self.peerIds.add(rid)
+            peer.status = AutoUpdateObject(None)
+            peer.status.setReadOnly(True)
+#             self.iamStarter = False
 
             for pid, addr in neighbours.items():
                 rpeer = self.grpMan.connectTo(addr)
-                rid = rpeer.hello(self.myId)
+                rid = rpeer.fyiIamNewHere.asyncCall(self.dummyCB, self.gid)
                 assert rid == pid
-                rpeer.id = pid
+                rpeer.gid = pid
                 self.neighbours[pid] = rpeer
+                rpeer.status = AutoUpdateObject(None)
+                rpeer.status.setReadOnly(True)
             cprint.blue(self.neighbours)
+        else:
+            self.peerIds.add(self.gid)
+        self.status = AutoUpdateObject(self.sendStatus)
+#         self.status.setAutoCommit(True)
+
+    def broadcast(self, func, *args, **kwargs):
+        assert self.groupReady
+        fname = func.__name__
+        for x, peer in self.neighbours.items():
+            fn = getattr(peer, fname)
+            fn.asyncCall(self.dummyCB, *args, **kwargs)
+        fn = getattr(self, fname)
+        fn(self, *args, **kwargs)
+
+    def dummyCB(self, ret, err):
+        pass
 
     def shutdown(self):
         if self.grpMan is not None:
             self.grpMan.shutdown()
 
     def peerRemoved(self, peer):
-        cprint.cyan(peer, peer.id)
-        del self.neighbours[peer.id]
+        cprint.cyan(peer, peer.gid)
+        del self.neighbours[peer.gid]
+
+    def sendStatus(self, status):
+        for x, peer in self.neighbours.items():
+            peer.updateStatus.asyncCall(self.dummyCB, status)
 
 #===========================================
     def exposed_addme(self, rpeer):
         yid = len(self.neighbours) + 1
         neighbours = {x:y.getAddr() for x,y in self.neighbours.items()}
-        rpeer.id = yid
+        rpeer.gid = yid
         self.neighbours[yid] = rpeer
-        return neighbours, yid, self.myId
+        rpeer.status = AutoUpdateObject(None)
+        rpeer.status.setReadOnly(True)
+        self.peerIds.add(yid)
+        if len(self.peerIds) == 2:
+            self.iamStarter = True
+#             self.groupReady = True
+        return neighbours, yid, self.gid
 
-    def exposed_hello(self, rpeer, rid):
-        rpeer.id = rid
+    def exposed_updateStatus(self, rpeer, status):
+        rpeer.status.update(status)
+
+    def exposed_fyiIamNewHere(self, rpeer, rid):
+        rpeer.gid = rid
+        self.peerIds.add(rid)
         self.neighbours[rid] = rpeer
-        return self.myId
+        return self.gid
 
     def exposed_curStat(self, rpeer, playbackTime):
-        cprint.cyan(rpeer.id, f"playbackTime={playbackTime}")
+        rpeer.status.playbackTime = playbackTime
+        cprint.cyan(rpeer.gid, f"playbackTime={playbackTime}")
 
+    def exposed_qualityDownloading(self, rpeer, segId, ql):
+        self.groupInfo.downloader.setdefault(segId, {})[rpeer.gid] = ql
+        cprint.red(f"seg {segId} of ql {ql} download started by {rpeer.gid}")
+
+    def exposed_updateChunkSizes(self, rpeer, chunkSizes):
+        self.groupInfo.sizes.update(chunkSizes)
+        cprint.red(f"chunksize updated by {rpeer.gid} for chunks {chunkSizes.keys()}")
+
+    def exposed_downloaded(self, rpeer, segId, ql):
+        self.groupInfo.chunkInfo.setdefault(segId, []).append((rpeer.gid, ql))
+        cprint.red(f"seg {segId} of ql {ql} downloaded by {rpeer.gid}")
+
+    def exposed_setNextDownloader(self, rpeer, segId, gid):
+        if not self.groupReady:
+            assert not self.iamStarter
+            self.startGroupRelatedThreads(segId)
+        cprint.red(f"setNetdownloader {gid} is assigned for seg {segId} by {rpeer.gid}")
+        self.groupInfo.downloader.setdefault(segId, {})[gid] = -1
+        if self.gid == gid:
+            self.teamplayerQueue.put((segId,))

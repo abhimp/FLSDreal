@@ -34,6 +34,9 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
         self.extraHeaders = {}
         super().__init__(req, client, server, directory=directory)
 
+    def log_message(self, format, *args):
+         pass
+
     def addHeaders(self, name, value):
         self.extraHeaders[name] = value
 

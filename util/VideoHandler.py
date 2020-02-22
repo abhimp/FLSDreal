@@ -33,11 +33,6 @@ class VideoHandler:
     def getChunkUrl(self, ql, num, typ):
         url = urljoin(self.mpdUrl, f"chunk/{typ}-{ql}-{num}")
         return url
-        rep = self.infos[typ]["repIds"][ql]
-        actNum = self.infos[typ]["startNumber"][ql] + num if num != "init" else num
-        url = urljoin(self.mpdUrl, f"{rep}-{actNum}")
-#         print("chunk url", url)
-        return url
 
     def getJson(self):
         return json.dumps({"vidInfo": self.vidInfo, "audInfo": self.audInfo})
@@ -50,6 +45,14 @@ class VideoHandler:
         time = self.getTime()
         playbackTime = time - self.startTime
         return playbackTime
+
+    def isSegmentAvaibleAtTheServer(self, segId):
+        return self.timeToSegmentAvailableAtTheServer(segId) < 0
+
+    def timeToSegmentAvailableAtTheServer(self, segId):
+        curPlaybackTime = self.expectedPlaybackTime()
+        segEndTime = (segId+1)*self.getSegmentDur()
+        return segEndTime - curPlaybackTime - 5*self.getSegmentDur()
 
     def getInitFiles(self):
         initAudio = [urlopen(self.getChunkUrl(x, "init", "audio")).read() for x,m in enumerate(self.audInfo["repIds"])]
@@ -96,9 +99,25 @@ class VideoHandler:
             self.updateChunkSizes(dt)
         chunks[num] = res.read()
 
+    def addChunk(self, ql, num, typ, data):
+        num = int(num)
+        chunks = self.chunks.setdefault(typ, {}).setdefault(ql, {})
+        assert num not in chunks
+        chunks[num] = data
+
+
     def getInitFileDescriptor(self, ql, mt):
         fd = io.BytesIO(self.initFiles[mt][ql])
         return fd
+
+    def getCachedQuality(self, num, mt):
+        assert type(num) == int and num >= 0
+        chunks = self.chunks.setdefault(mt, {})
+        qls = []
+        for ql, chs in chunks.items():
+            if num in chs:
+                qls += [ql]
+        return qls
 
     def getChunkFileDescriptor(self, ql, num, mt):
         chunks = self.chunks.setdefault(mt, {}).setdefault(ql, {})

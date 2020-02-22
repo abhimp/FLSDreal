@@ -4,11 +4,19 @@ import socket
 import sys
 import json
 import pickle
+import queue
 import traceback as tb
 
 from . import cprint
 from . import ipc
 
+KIND_KIND = "kind"
+KIND_CALL = "call"
+KIND_RETURN = "ret"
+KIND_INIT = "init"
+KIND_INIT_RET = "initret"
+KIND_UPDATE_STATUS = "us"
+KIND_UNKNOWN = "unknown"
 
 class CallableStubObj:
     def __init__(self, name, origFunc):
@@ -16,7 +24,7 @@ class CallableStubObj:
         self.origFunc = origFunc
     def __call__(self, *a, **b):
         return self.origFunc(self.name, None, *a, **b)
-    def asyncCall(self, callback, args=[], kwargs={}):
+    def asyncCall(self, callback, *args, **kwargs):
         return self.origFunc(self.name, callback, *args, **kwargs)
 
 class RpcPeer:
@@ -85,13 +93,37 @@ class RpcPeer:
     def __getattr__(self, name):
         if self.rpcs is None:
             raise AttributeError()
-#         cprint.red(name)
         if name in self.rpcs:
             return self.rpcs[name]
         if "exposed_" + name in self.rpcs:
             return self.rpcs["exposed_" + name]
         raise AttributeError("Attribute "+name+" not found")
 
+class SendQueue:
+    def __init__(self):
+        self.buffer = b""
+        self.queue = queue.Queue(1)
+    def put(self, buf, *args):
+        if len(args) > 0:
+            for x in args:
+                buf += x
+        self.queue.put(buf)
+
+
+    def send(self, con):
+        buf = self.buffer
+        if len(buf) == 0 and not self.queue.empty():
+            buf = self.queue.get()
+        if len(buf) == 0:
+            return
+        l = con.send(buf)
+        if l < len(buf):
+            self.buffer = buf[l:]
+
+    def empty(self):
+        return len(self.buffer) == 0 and self.queue.empty()
+    def clear(self):
+        while not self.queue.empty(): self.queue.get_nowait()
 
 def encodeObject(obj):
     getDict = getattr(obj, "getDict", None)
@@ -109,6 +141,7 @@ class RpcManager:
         self.peerConnections = []
         self.server = None
         self.msgq = None
+        self.sendq = None
 
         self.peerRemovedCB = None
 
@@ -147,12 +180,14 @@ class RpcManager:
         self.server = server
 
         self.msgq = {}
+        self.sendq = {}
 
         notificationSock.send(b"done") #inform parent thread that I am ready
 
         while server is not None:
             inputs = [server, notificationSock] + self.peerConnections[:]
-            readable, writable, exceptions = select.select(inputs, [], []) # Wait to for some data
+            output = [x for x, y in self.sendq.items() if not y.empty()]
+            readable, writable, exceptions = select.select(inputs, output, []) # Wait to for some data
 
             if notificationSock in readable:
                 while True:
@@ -162,7 +197,10 @@ class RpcManager:
                             # of select call once. Otherwise, select wont poll the new socket.
                     except BlockingIOError:
                         break
-                continue
+                #continue
+
+            for con in writable:
+                self.sendq[con].send(con)
 
             for s in readable:
                 if s is server: # this is boiler plate server acceptance code.
@@ -174,18 +212,22 @@ class RpcManager:
                     print("new con req from", addr)
                     self.addSocketToMonitor(con) # Socket monitor is a special type of deserializer
                         # it serialize input data in form of [json_object, byte_array].
-                else:
-                    dt = s.recv(1024)
-                    if dt:
-                        self.msgq[s].append(dt)
-                        while True:
-                            p = self.msgq[s].getObject()
-                            if p is None:
-                                break
-                            self.recvMsg(p, s)
-                    else:
+                elif s != notificationSock:
+                    try:
+                        dt = s.recv(1024)
+                        if dt:
+                            self.msgq[s].append(dt)
+                            while True:
+                                p = self.msgq[s].getObject()
+                                if p is None:
+                                    break
+                                self.recvMsg(p, s)
+                        else:
+                            self.removeSocketFromMonitor(s)
+                            cprint.red("closing", s)
+                    except ConnectionResetError:
                         self.removeSocketFromMonitor(s)
-                        cprint.red("closing", s)
+                        cprint.red("closing due to exceptions", s)
 
             for s in exceptions:
                 if s in inputs:
@@ -198,18 +240,25 @@ class RpcManager:
         if self.me.addr is None:
             self.me.addr = (con.getsockname()[0], self.port)
 
-        kind = msg[0].get("kind", "unknown")
+        kind = msg[0].get(KIND_KIND, KIND_UNKNOWN)
 
         funcs = {
-            "call": self.handleCall,
-            "return": self.handleReturn,
-            "init": self.handleInit,
-            "initRet": self.handleInitRet,
+            KIND_CALL: self.handleCall,
+            KIND_RETURN: self.handleReturn,
+            KIND_INIT: self.handleInit,
+            KIND_INIT_RET: self.handleInitRet,
+            KIND_UPDATE_STATUS: self.handleUpdateStatus,
         }
 
         func = funcs.get(kind, None)
         if func is not None:
             func(msg, con)
+
+    def handleUpdateStatus(self, msg, con):
+        assert con in self.neighbours
+        peer = self.neighbours[con]
+        status = pickle.loads(msg[1]) #0: func name, 1: args, 2: kwargs, 3: blob
+        peer.status.update(status)
 
     def handleReturn(self, msg, con):
         peer = self.neighbours.get(con, None)
@@ -229,7 +278,7 @@ class RpcManager:
 
     def call(self, name, con, blob, *args, **kwargs):
         rpc = (name, args, kwargs, blob)
-        msg = {"kind": "call"}
+        msg = {KIND_KIND: KIND_CALL}
         self.sendMsg(con, msg, rpc)
 
     def addNeighbourStub(self, msg, con):
@@ -254,7 +303,7 @@ class RpcManager:
             return
 
         rmsg = {
-                "kind": "initRet",
+                KIND_KIND: KIND_INIT_RET,
                 "stub": list(self.stubFunctions.keys()),
                 }
         self.sendMsg(con, rmsg)
@@ -264,7 +313,7 @@ class RpcManager:
         peer = self.neighbours[con]
         rpc = pickle.loads(msg[1]) #0: func name, 1: args, 2: kwargs, 3: blob
         fname, args, kwargs, blob = rpc
-        rmsg = {"kind": "return"}
+        rmsg = {KIND_KIND: KIND_RETURN}
         ret = None
         error = None
         try:
@@ -282,14 +331,17 @@ class RpcManager:
             pl = pickle.dumps(payload)
             msg["payloadLen"] = len(pl)
         bmsg = json.dumps(msg, default=encodeObject).encode("utf8")
-        sock.send(bmsg)
-#         print(msg, len(pl))
-        if len(pl) > 0:
-            sock.send(pl)
+        self.sendq[sock].put(bmsg, pl)
+        self.notificationPipe.send(b"p")
+
+#     def blockingSend(dt):
+#         while True:
+
 
     def addSocketToMonitor(self, con):
         self.peerConnections.append(con)
         self.msgq[con] = ipc.RecvData()
+        self.sendq[con] = SendQueue()
         con.setblocking(0)
         self.notificationPipe.send(b"p")
 
@@ -301,7 +353,10 @@ class RpcManager:
             peer = self.neighbours[sock]
             self.peerRemovedCB(peer)
         del self.msgq[sock]
+        sq = self.sendq[sock]
+        del self.sendq[sock]
         del self.neighbours[sock]
+        sq.clear() #
 
     def connectTo(self, addr):
         self.newConnectionLock.acquire()
@@ -311,7 +366,7 @@ class RpcManager:
         s.connect(addr)
         self.addSocketToMonitor(s)
         msg = {
-                "kind": "init",
+                KIND_KIND: KIND_INIT,
                 "stub": list(self.stubFunctions.keys()),
                 }
         self.newConnectionSocket = s
