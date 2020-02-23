@@ -79,7 +79,7 @@ class VideoHandler:
             return chunkSizes[ql]
         actNum = num
         sizeUrl = urljoin(self.mpdUrl, f"sizes/-{actNum}")
-        print(sizeUrl)
+#         print(sizeUrl)
         fs = urlopen(sizeUrl).read().decode()
         fs = {actNum: json.loads(fs)}
         self.updateChunkSizes(fs)
@@ -91,7 +91,7 @@ class VideoHandler:
         assert num not in chunks
 
         url = self.getChunkUrl(ql, num, typ)
-        print(url, num)
+#         print(url, num)
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
         if dt is not None:

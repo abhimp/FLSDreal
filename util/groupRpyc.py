@@ -6,6 +6,7 @@ import json
 import pickle
 import queue
 import traceback as tb
+import time
 
 from . import cprint
 from . import ipc
@@ -17,6 +18,14 @@ KIND_INIT = "init"
 KIND_INIT_RET = "initret"
 KIND_UPDATE_STATUS = "us"
 KIND_UNKNOWN = "unknown"
+
+class Semaphore:
+    def __init__(self, *a, **b):
+        self.sem = threading.Semaphore(*a, **b)
+    def acquire(self, *a, **b):
+        self.sem.acquire(*a, **b)
+    def release(self, *a, **b):
+        self.sem.release(*a, **b)
 
 class CallableStubObj:
     def __init__(self, name, origFunc):
@@ -36,15 +45,19 @@ class RpcPeer:
         self.callback = None
         self.callId = 0
         self.lock = threading.Lock()
-        self.callSems = {}
+        self.callIdLock = threading.Lock()
+        self.timeers = {}
+#         self.callSems = {}
         self.callReturns = {}
+        self.callName = {}
         self.callAsyncCBs = {}
+        self.sem = Semaphore(0)
 
     def getNextCallId(self):
-        self.lock.acquire()
+        self.callIdLock.acquire()
         clid = self.callId
         self.callId += 1
-        self.lock.release()
+        self.callIdLock.release()
         return clid
 
     def getAddr(self):
@@ -59,16 +72,23 @@ class RpcPeer:
     def call(self, name, asyncCB, *a, **b):
         sem = None
         clid = self.getNextCallId()
+#         cprint.orange(f"RPC clid:{clid} for {name}")
         if asyncCB is None:
-            sem = threading.Semaphore(0)
-            self.callSems[clid] = sem
+            self.lock.acquire()
+#             sem = threading.Semaphore(0)
+#             self.callSems[clid] = sem
         else:
             self.callAsyncCBs[clid] = asyncCB
+#         cprint.orange(f"RPC {name} with clid:{clid} firing {asyncCB is None}")
+        self.timeers[clid] = time.time()
+        self.callName[clid] = name
         self.callback(name, self.sock, clid, *a, **b)
         if asyncCB is not None:
             return
-        sem.acquire()
-        del self.callSems[clid]
+        self.sem.acquire()
+        self.lock.release()
+#         sem.acquire()
+#         del self.callSems[clid]
         ret = self.callReturns.get(clid, None)
         retval, error = None, None
         if ret is not None:
@@ -81,14 +101,15 @@ class RpcPeer:
 
     def returnRecvd(self, blob, ret, error):
         clid = blob
-        sem = self.callSems.get(clid, None)
+#         cprint.orange(f"RPC returned clid:{clid}")
+#         cprint.orange(f"rpc {self.callName[clid]} took {time.time() - self.timeers[clid]}")
+#         sem = self.callSems.get(clid, None)
         asyncCB = self.callAsyncCBs.get(clid, None)
-        assert (sem is not None and asyncCB is None) or (sem is None and asyncCB is not None)
-        if sem is None:
+        if asyncCB is not None:
             asyncCB(ret, error)
             return
         self.callReturns[clid] = (ret, error)
-        sem.release()
+        self.sem.release()
 
     def __getattr__(self, name):
         if self.rpcs is None:
@@ -100,25 +121,45 @@ class RpcPeer:
         raise AttributeError("Attribute "+name+" not found")
 
 class SendQueue:
-    def __init__(self):
+    def __init__(self, tident):
+        assert tident is not None
+        self.tident = tident
         self.buffer = b""
-        self.queue = queue.Queue(1)
+        self.queue = queue.Queue()
+        self.sem = threading.Semaphore(1)
+        self.lock = threading.Lock()
+
     def put(self, buf, *args):
+        assert self.tident != threading.get_ident()
+        self.lock.acquire()
         if len(args) > 0:
             for x in args:
                 buf += x
-        self.queue.put(buf)
+        self.queue.put((buf, True))
+        self.sem.acquire()
+        self.lock.release()
 
+    def putnowait(self, buf, *args):
+        assert self.tident == threading.get_ident()
+        if len(args) > 0:
+            for x in args:
+                buf += x
+        self.queue.put((buf, False))
 
     def send(self, con):
+        assert self.tident == threading.get_ident()
         buf = self.buffer
-        if len(buf) == 0 and not self.queue.empty():
-            buf = self.queue.get()
-        if len(buf) == 0:
-            return
-        l = con.send(buf)
-        if l < len(buf):
-            self.buffer = buf[l:]
+        if len(buf) > 0:
+            l = con.send(buf)
+            buf = buf[l:]
+        while len(buf) == 0 and not self.queue.empty():
+            buf, clearSem = self.queue.get()
+            if clearSem:
+                self.sem.release()
+            if len(buf) > 0:
+                l = con.send(buf)
+                buf = buf[l:]
+        self.buffer = buf
 
     def empty(self):
         return len(self.buffer) == 0 and self.queue.empty()
@@ -142,6 +183,7 @@ class RpcManager:
         self.server = None
         self.msgq = None
         self.sendq = None
+        self.listeningThread = None
 
         self.peerRemovedCB = None
 
@@ -188,6 +230,7 @@ class RpcManager:
             inputs = [server, notificationSock] + self.peerConnections[:]
             output = [x for x, y in self.sendq.items() if not y.empty()]
             readable, writable, exceptions = select.select(inputs, output, []) # Wait to for some data
+#             cprint.blue(f"breaking off select at {time.time()}, in:", [x.fileno() for x in readable], "out:", [x.fileno() for x in writable])
 
             if notificationSock in readable:
                 while True:
@@ -279,6 +322,7 @@ class RpcManager:
     def call(self, name, con, blob, *args, **kwargs):
         rpc = (name, args, kwargs, blob)
         msg = {KIND_KIND: KIND_CALL}
+#         cprint.cyan(f"calling {name} for remote")
         self.sendMsg(con, msg, rpc)
 
     def addNeighbourStub(self, msg, con):
@@ -306,7 +350,7 @@ class RpcManager:
                 KIND_KIND: KIND_INIT_RET,
                 "stub": list(self.stubFunctions.keys()),
                 }
-        self.sendMsg(con, rmsg)
+        self.sendMsg(con, rmsg, sameThread=True)
 
     def handleCall(self, msg, con):
         assert con in self.neighbours
@@ -316,32 +360,38 @@ class RpcManager:
         rmsg = {KIND_KIND: KIND_RETURN}
         ret = None
         error = None
+
+#         cprint.cyan(f"broadcasting {fname} from {peer}")
+#         cprint.green(f"RPC {fname} received with callid {blob}")
+        time1 = time.time()
         try:
             func = self.stubFunctions[fname]
             ret = func(peer, *args, **kwargs)
         except Exception:
             track = tb.format_exc()
             error = track
+        time2 = time.time()
+#         cprint.green(f"RPC {fname} returning with callid {blob}")
         payload = [ret, error, blob]
-        self.sendMsg(con, rmsg, payload)
+        self.sendMsg(con, rmsg, payload, sameThread=True)
 
-    def sendMsg(self, sock, msg, payload = None):
+    def sendMsg(self, sock, msg, payload = None, sameThread=False):
         pl = b""
         if payload is not None:
             pl = pickle.dumps(payload)
             msg["payloadLen"] = len(pl)
         bmsg = json.dumps(msg, default=encodeObject).encode("utf8")
-        self.sendq[sock].put(bmsg, pl)
+        if sameThread:
+            self.sendq[sock].putnowait(bmsg, pl)
+        else:
+            self.sendq[sock].put(bmsg, pl)
         self.notificationPipe.send(b"p")
 
-#     def blockingSend(dt):
-#         while True:
-
-
     def addSocketToMonitor(self, con):
+        assert self.listeningThread is not None
         self.peerConnections.append(con)
         self.msgq[con] = ipc.RecvData()
-        self.sendq[con] = SendQueue()
+        self.sendq[con] = SendQueue(self.listeningThread.ident)
         con.setblocking(0)
         self.notificationPipe.send(b"p")
 
@@ -370,7 +420,7 @@ class RpcManager:
                 "stub": list(self.stubFunctions.keys()),
                 }
         self.newConnectionSocket = s
-        self.sendMsg(s,msg)
+        self.sendMsg(s, msg)
         self.newConnectionSem.acquire()
         peer = self.neighbours.get(s, None)
         self.newConnectionLock.release()
@@ -396,8 +446,16 @@ class TestPeer(RpcPeer):
     def setStatus(self, playbackTime):
         self.curPlaybackTime = playbackTime
 
-    def exposed_myname(self):
+    def exposed_myname(self, *a):
         return "ds" + str(self.id)
+
+    def exposed_num(self, rp, num):
+        print(f"got call with num={num}")
+        threading.Timer(1, rp.num2.asyncCall, args=(ret, num+200)).start()
+        return num + 1
+
+    def exposed_num2(self, rp, num):
+        print(f"got call with num={num}")
 
     def getDict(self):
         return {
@@ -427,5 +485,9 @@ def testAsClient():
     cprint.green(p)
     cprint.blue(p.exposed_myname.asyncCall(ret))
     cprint.blue(p.exposed_myname())
+    for x in range(100):
+        cprint.blue(p.exposed_num.asyncCall(ret, x))
+        cprint.blue(p.exposed_num(x))
+    time.sleep(5)
     mon.shutdown()
 

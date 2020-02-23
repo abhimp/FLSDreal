@@ -9,6 +9,12 @@ from . import groupRpyc as GroupMan
 from . import cprint
 from . import nestedObject
 
+class CallableObj:
+    def __init__(self, name):
+        self.name = name
+    def __call__(self, *a, **b):
+        cprint.green(f"{self.name} returned", *a)
+
 class AutoUpdateObject():
     def __init__(self, callback):
         self.__int_values = {}
@@ -119,8 +125,8 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.initGroupInfo()
         self.groupStartedFromSegId = segId
         self.groupReady = True
-        self.groupThread = threading.Thread(target=self.downloadAsTeamplayer); self.groupThread.start()
-        self.groupThread = threading.Thread(target=self.downloadFromDownloadQueue); self.groupThread.start()
+        self.groupDownloaderThread = threading.Thread(target=self.downloadAsTeamplayer); self.groupDownloaderThread.start()
+        self.groupActionThread = threading.Thread(target=self.downloadFromDownloadQueue); self.groupActionThread.start()
 #         cprint.magenta("GROUP STARTED")
 
     def loadChunk(self, ql, num, typ):
@@ -128,6 +134,9 @@ class DummyPlayer(GroupMan.RpcPeer):
         qls = self.videoHandler.getCachedQuality(num, typ)
         assert ql not in qls
 
+#         cprint.magenta(f"downloading task recvd for {num}, {ql}")
+        self.broadcast(self.exposed_qualityDownloading, num, ql)
+#         cprint.magenta(f"downloading {num}, {ql}")
         url = self.videoHandler.getChunkUrl(ql, num, typ)
         print(url, num)
         res = urlopen(url)
@@ -136,8 +145,11 @@ class DummyPlayer(GroupMan.RpcPeer):
             dt = json.loads(dt)
             self.videoHandler.updateChunkSizes(dt)
             self.broadcast(self.exposed_updateChunkSizes, dt)
+#         cprint.blue(f"reading data for segId {num}")
         self.videoHandler.addChunk(ql, num, typ, res.read())
+#         cprint.blue(f"broadcasting read data for segId {num}")
         self.broadcast(self.exposed_downloaded, num, ql)
+#         cprint.blue(f"broadcasted read data for segId {num}")
 
 
     def selectGroupQl(self, segId):
@@ -159,13 +171,12 @@ class DummyPlayer(GroupMan.RpcPeer):
             sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
             if sleepTime > 0:
                 time.sleep(sleepTime)
-            nextDownloader = self.selectNextDownloader()
+            nextDownloader = self.selectNextDownloader(segId + 1)
             self.broadcast(self.exposed_setNextDownloader, segId+1, nextDownloader)
 
     def downloadFromDownloadQueue(self):
         while True:
             segId, ql = self.downloadQueue.get()
-            cprint.magenta("downloading task recvd for {segId}, {ql}")
             if ql == "*": #i.e. run quality selection
                 ql = self.selectGroupQl(segId)
             self.loadChunk(ql, segId, "video")
@@ -244,11 +255,13 @@ class DummyPlayer(GroupMan.RpcPeer):
         fname = func.__name__
         for x, peer in self.neighbours.items():
             fn = getattr(peer, fname)
+#             fn.asyncCall(CallableObj(fname), *args, **kwargs)
             fn.asyncCall(self.dummyCB, *args, **kwargs)
         fn = getattr(self, fname)
         fn(self, *args, **kwargs)
 
     def dummyCB(self, ret, err):
+#         cprint.green("dummyCB")
         pass
 
     def shutdown(self):
@@ -288,25 +301,25 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def exposed_curStat(self, rpeer, playbackTime):
         rpeer.status.playbackTime = playbackTime
-        cprint.cyan(rpeer.gid, f"playbackTime={playbackTime}")
+        cprint.cyan(f"{self.gid}:", rpeer.gid, f"playbackTime={playbackTime}")
 
     def exposed_qualityDownloading(self, rpeer, segId, ql):
         self.groupInfo.downloader.setdefault(segId, {})[rpeer.gid] = ql
-        cprint.red(f"seg {segId} of ql {ql} download started by {rpeer.gid}")
+        cprint.red(f"{self.gid}:", f"seg {segId} of ql {ql} download started by {rpeer.gid}")
 
     def exposed_updateChunkSizes(self, rpeer, chunkSizes):
         self.groupInfo.sizes.update(chunkSizes)
-        cprint.red(f"chunksize updated by {rpeer.gid} for chunks {chunkSizes.keys()}")
+        cprint.red(f"{self.gid}:", f"chunksize updated by {rpeer.gid} for chunks {chunkSizes.keys()}")
 
     def exposed_downloaded(self, rpeer, segId, ql):
         self.groupInfo.chunkInfo.setdefault(segId, []).append((rpeer.gid, ql))
-        cprint.red(f"seg {segId} of ql {ql} downloaded by {rpeer.gid}")
+        cprint.red(f"{self.gid}:", f"seg {segId} of ql {ql} downloaded by {rpeer.gid}")
 
     def exposed_setNextDownloader(self, rpeer, segId, gid):
         if not self.groupReady:
             assert not self.iamStarter
             self.startGroupRelatedThreads(segId)
-        cprint.red(f"setNetdownloader {gid} is assigned for seg {segId} by {rpeer.gid}")
+        cprint.red(f"{self.gid}:", f"setNetdownloader {gid} is assigned for seg {segId} by {rpeer.gid}")
         self.groupInfo.downloader.setdefault(segId, {})[gid] = -1
         if self.gid == gid:
             self.teamplayerQueue.put((segId,))

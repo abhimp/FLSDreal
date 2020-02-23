@@ -22,6 +22,7 @@ def __endColor(file=None):
         file=sys.stdout
     if file.isatty():
         return RESET
+        file.flush()
     return ""
 
 def red(*a, **b):

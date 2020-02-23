@@ -92,7 +92,7 @@ def getNextChunks(playbackTime, buffers):
     global dPlayer
     segDur = dPlayer.videoHandler.getSegmentDur()#.vidInfo["segmentDuration"]
     dPlayer.updateState(playbackTime, buffers)
-    print(playbackTime, segDur, buffers, dPlayer.nextSegId, dPlayer.setPlaybackTime)
+#     print(playbackTime, segDur, buffers, dPlayer.nextSegId, dPlayer.setPlaybackTime)
     actions = {}
     if dPlayer.setPlaybackTime > 0:
         buffered = False
@@ -146,6 +146,7 @@ def startWeb(port):
     cmdLine += " --enable-logging"
     cmdLine += " --log-level=0"
     cmdLine += " --no-default-browser-check"
+    cmdLine += " --mute-audio"
     cmdLine += f" --app=\"{url}\""
     print(cmdLine)
     os.system(cmdLine)
@@ -161,5 +162,11 @@ def main():
         p.start()
         serveWithHttp(httpd)
 
+try:
+    import cProfile as profile
+except:
+    import profile
+
 if __name__ == "__main__":
+#     profile.run("main()")
     main()
