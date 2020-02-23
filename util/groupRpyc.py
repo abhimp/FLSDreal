@@ -7,6 +7,7 @@ import pickle
 import queue
 import traceback as tb
 import time
+import multiprocessing as mp
 
 from . import cprint
 from . import ipc
@@ -15,6 +16,7 @@ KIND_KIND = "kind"
 KIND_CALL = "call"
 KIND_RETURN = "ret"
 KIND_INIT = "init"
+KIND_DATA_INIT = "data_init"
 KIND_INIT_RET = "initret"
 KIND_UPDATE_STATUS = "us"
 KIND_UNKNOWN = "unknown"
@@ -37,7 +39,8 @@ class CallableStubObj:
         return self.origFunc(self.name, callback, *args, **kwargs)
 
 class RpcPeer:
-    def __init__(self, addr = None):
+    def __init__(self, addr = None, laddr=None):
+        self.laddr = laddr
         self.ready = False
         self.sock = None
         self.addr = addr
@@ -52,6 +55,13 @@ class RpcPeer:
         self.callName = {}
         self.callAsyncCBs = {}
         self.sem = Semaphore(0)
+        self.createDataSocket = None
+
+    def getChunk(self, mt, ql, segId): #it should return a socket
+        if self.createDataSocket is None or not callable(self.createDataSocket):
+            cprint.orange("returning None")
+            return None
+        return self.createDataSocket(self, mt, ql, segId)
 
     def getNextCallId(self):
         self.callIdLock.acquire()
@@ -186,6 +196,7 @@ class RpcManager:
         self.listeningThread = None
 
         self.peerRemovedCB = None
+        self.dataConnRecvCB = None
 
         self.newConnectionLock = threading.Lock()
         self.newConnectionSem = threading.Semaphore(0)
@@ -229,6 +240,7 @@ class RpcManager:
         while server is not None:
             inputs = [server, notificationSock] + self.peerConnections[:]
             output = [x for x, y in self.sendq.items() if not y.empty()]
+#             print(inputs, output)
             readable, writable, exceptions = select.select(inputs, output, []) # Wait to for some data
 #             cprint.blue(f"breaking off select at {time.time()}, in:", [x.fileno() for x in readable], "out:", [x.fileno() for x in writable])
 
@@ -260,7 +272,7 @@ class RpcManager:
                         dt = s.recv(1024)
                         if dt:
                             self.msgq[s].append(dt)
-                            while True:
+                            while True and s in self.msgq:
                                 p = self.msgq[s].getObject()
                                 if p is None:
                                     break
@@ -289,6 +301,7 @@ class RpcManager:
             KIND_CALL: self.handleCall,
             KIND_RETURN: self.handleReturn,
             KIND_INIT: self.handleInit,
+            KIND_DATA_INIT: self.handleDataInit,
             KIND_INIT_RET: self.handleInitRet,
             KIND_UPDATE_STATUS: self.handleUpdateStatus,
         }
@@ -327,6 +340,7 @@ class RpcManager:
 
     def addNeighbourStub(self, msg, con):
         stub = msg[0]["stub"]
+        lport = msg[0]["lport"]
         for x in stub:
             if x not in self.stubFunctions:
                 return False
@@ -334,10 +348,29 @@ class RpcManager:
         peer = RpcPeer()
         peer.setRpc(stub, self.call)
         peer.addr = con.getpeername()
+        peer.laddr = (peer.addr[0], lport)
         peer.sock = con
         peer.read = True
+        peer.createDataSocket = self.createDataSocket
         self.neighbours[con] = peer
         return peer
+
+    def handleDataInit(self, msg, con):
+        mt, ql, segId = msg[0]["rdata"]
+        self.peerConnections.remove(con)
+        sq = self.sendq[con]
+        del self.msgq[con]
+        del self.sendq[con]
+#         del self.neighbours[con]
+        sq.clear()
+        self.notificationPipe.send(b"p")
+        con.setblocking(True)
+        if self.dataConnRecvCB is None or not callable(self.dataConnRecvCB):
+            con.send(chr(0).encode())
+            con.close()
+            return
+        self.dataConnRecvCB(con, mt, ql, segId)
+#         con.close()
 
     def handleInit(self, msg, con):
         assert con not in self.neighbours
@@ -349,8 +382,10 @@ class RpcManager:
         rmsg = {
                 KIND_KIND: KIND_INIT_RET,
                 "stub": list(self.stubFunctions.keys()),
+                "lport": self.port,
                 }
         self.sendMsg(con, rmsg, sameThread=True)
+#         con.close()
 
     def handleCall(self, msg, con):
         assert con in self.neighbours
@@ -406,7 +441,21 @@ class RpcManager:
         sq = self.sendq[sock]
         del self.sendq[sock]
         del self.neighbours[sock]
-        sq.clear() #
+        sq.clear()
+
+    def createDataSocket(self, peer, mt, ql, segId):
+        laddr = peer.laddr
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+#         print(laddr)
+        s.connect(laddr)
+        msg = {
+                KIND_KIND: KIND_DATA_INIT,
+                "rdata": [mt, ql, segId],
+                }
+        dmsg = json.dumps(msg).encode() #bypassing sendmsg as it need in stream format
+                                        #also it will blocking socket
+        s.send(dmsg)
+        return s
 
     def connectTo(self, addr):
         self.newConnectionLock.acquire()
@@ -418,6 +467,7 @@ class RpcManager:
         msg = {
                 KIND_KIND: KIND_INIT,
                 "stub": list(self.stubFunctions.keys()),
+                "lport": self.port,
                 }
         self.newConnectionSocket = s
         self.sendMsg(s, msg)
@@ -434,6 +484,10 @@ class RpcManager:
     def addPeerRemovedCB(self, cb):
         assert callable(cb)
         self.peerRemovedCB = cb
+
+    def addDataConnRecvCB(self, cb):
+        assert callable(cb)
+        self.dataConnRecvCB = cb
 
 
 
@@ -467,10 +521,19 @@ class TestPeer(RpcPeer):
         return "<TestPeer " \
                 + f"{self.getDict()}" \
                 + ">"
+def dataSockr(sock, p):
+    p = sock.read()
+    sock.close()
+    exit(0)
+def dataSockRecv(sock, *a):
+    print(sock, a)
+    proc = mp.Process(target=dataSockr, args=(sock, a))
+    proc.start()
 
 def testAsParent():
     p = TestPeer(9800)
     mon = RpcManager(9800, p)
+#     mon.dataConnRecvCB = dataSockRecv
     mon.start()
     mon.join()
 
@@ -488,6 +551,9 @@ def testAsClient():
     for x in range(100):
         cprint.blue(p.exposed_num.asyncCall(ret, x))
         cprint.blue(p.exposed_num(x))
+    s = p.getChunk(4,5,6)
+    print(s, p)
     time.sleep(5)
+    s.close()
     mon.shutdown()
 
