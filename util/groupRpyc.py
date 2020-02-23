@@ -366,6 +366,7 @@ class RpcManager:
         self.notificationPipe.send(b"p")
         con.setblocking(True)
         if self.dataConnRecvCB is None or not callable(self.dataConnRecvCB):
+            cprint.orange("data connection received and closing", self.dataConnRecvCB)
             con.send(chr(0).encode())
             con.close()
             return

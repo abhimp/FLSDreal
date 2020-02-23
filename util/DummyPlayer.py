@@ -4,6 +4,8 @@ import queue
 import threading
 import time
 import json
+import multiprocessing as mp
+import socket
 
 from . import groupRpyc as GroupMan
 from . import cprint
@@ -14,6 +16,16 @@ class CallableObj:
         self.name = name
     def __call__(self, *a, **b):
         cprint.green(f"{self.name} returned", *a)
+
+class Socket:
+    def __init__(self, sock):
+        self.sock = sock
+
+    def read(self, p):
+        return self.sock.recv(p)
+
+    def __getattr__(self, name):
+        return getattr(self.sock, name)
 
 class AutoUpdateObject():
     def __init__(self, callback):
@@ -105,7 +117,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.status.playbackTime = playbackTime
 #         self.status.commit()
 
-    def getChunkSize(ql, num, mt):
+    def getChunkSize(self, ql, num, mt):
         if mt == "audio":
             return self.videoHandler.getChunkSize(0, num, mt) #forcing ql to 0
         assert False
@@ -118,6 +130,10 @@ class DummyPlayer(GroupMan.RpcPeer):
         ql = self.videoHandler.getCachedQuality(self.nextSegId, "video")
         if len(ql) > 0:
             return max(ql)
+        if self.groupInfo is not None:
+            qls = self.groupInfo.chunkInfo.setdefault(self.nextSegId, [])
+            if len(qls) > 0:
+                return max([q[1] for q in qls])
         return -1
 
     def startGroupRelatedThreads(self, segId):
@@ -181,6 +197,25 @@ class DummyPlayer(GroupMan.RpcPeer):
                 ql = self.selectGroupQl(segId)
             self.loadChunk(ql, segId, "video")
 
+    def getChunkFileDescriptor(self, ql, segId, mt):
+        qls = self.videoHandler.getCachedQuality(segId, mt)
+        if ql in qls or not self.groupInfo or mt == "audio":
+            return self.videoHandler.getChunkFileDescriptor(ql, segId, mt)
+
+        cprint.orange(ql, segId, mt, qls, self.videoHandler.getChunkSize(ql, segId, mt))
+        assert mt == "video"
+        assert self.groupInfo is not None
+
+        qls = self.groupInfo.chunkInfo.setdefault(segId, [])
+        pgid = [q[0] for q in qls if q[1] == ql][0]
+        cprint.orange(pgid, self.gid, self.groupInfo.chunkInfo[segId])
+        assert pgid != self.gid
+        rpeer = self.neighbours[pgid]
+        con = rpeer.getChunk(mt, ql, segId)
+        ret = con.recv(1)
+        assert ret[0] == 1
+        return Socket(con)
+
     # Entry point from the player. return segment if available other wise return null
     # Player might stall if returned without any segment.
     def getNextSeg(self):
@@ -207,13 +242,32 @@ class DummyPlayer(GroupMan.RpcPeer):
             seg['coff'] = l
             seg['clen'] = self.videoHandler.getChunkSize(ql, self.nextSegId, mt)
             l += seg['clen']
-            fds += [self.videoHandler.getChunkFileDescriptor(ql, self.nextSegId, mt)]
+            #fds += [self.videoHandler.getChunkFileDescriptor(ql, self.nextSegId, mt)]
+            fds += [self.getChunkFileDescriptor(ql, self.nextSegId, mt)]
             segs += [seg]
 
         self.nextSegId += 1
         if self.grpMan is None and self.nextSegId - self.startSegment >= 3:
             self.startGroup()
         return segs, fds, l
+
+    def sendChunk(self, con, mt, ql, segId):
+        fd = self.videoHandler.getChunkFileDescriptor(ql, segId, mt)
+        con.send(chr(1).encode())
+        sent = con.sendfile(fd)
+        assert sent ==  self.videoHandler.getChunkSize(ql, segId, mt)
+
+    def sendChunkThroughSocket(self, con, mt, ql, segId):
+        qls = self.videoHandler.getCachedQuality(segId, mt)
+        if ql not in qls:
+            con.send(chr(0).encode())
+            cprint.orange(mt, ql, segId, "requsted but not sending")
+            con.close()
+            return
+        proc = mp.Process(target=self.sendChunk, args=(con, mt, ql, segId))
+        proc.start()
+#         cprint.orange(mt, ql, segId, "requsted and sending")
+        con.close()
 
 
 #===========================================
@@ -223,6 +277,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.grpMan = GroupMan.RpcManager(self.options.groupPort, self)
         self.grpMan.start()
         self.grpMan.addPeerRemovedCB(self.peerRemoved)
+        self.grpMan.addDataConnRecvCB(self.sendChunkThroughSocket)
         if self.options.neighbourAddress is not None:
             addr, port = self.options.neighbourAddress.split(":")
             peer = self.grpMan.connectTo((addr, int(port)))
