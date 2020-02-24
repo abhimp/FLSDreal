@@ -39,8 +39,7 @@ class CallableStubObj:
         return self.origFunc(self.name, callback, *args, **kwargs)
 
 class RpcPeer:
-    def __init__(self, addr = None, laddr=None):
-        self.laddr = laddr
+    def __init__(self, addr = None):
         self.ready = False
         self.sock = None
         self.addr = addr
@@ -238,6 +237,7 @@ class RpcManager:
         notificationSock.send(b"done") #inform parent thread that I am ready
 
         while server is not None:
+            assert server.fileno() > 2
             inputs = [server, notificationSock] + self.peerConnections[:]
             output = [x for x, y in self.sendq.items() if not y.empty()]
 #             print(inputs, output)
@@ -347,8 +347,7 @@ class RpcManager:
 
         peer = RpcPeer()
         peer.setRpc(stub, self.call)
-        peer.addr = con.getpeername()
-        peer.laddr = (peer.addr[0], lport)
+        peer.addr = (con.getpeername()[0], lport)
         peer.sock = con
         peer.read = True
         peer.createDataSocket = self.createDataSocket
@@ -445,7 +444,7 @@ class RpcManager:
         sq.clear()
 
     def createDataSocket(self, peer, mt, ql, segId):
-        laddr = peer.laddr
+        laddr = peer.addr
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
 #         print(laddr)
         s.connect(laddr)
@@ -460,6 +459,7 @@ class RpcManager:
 
     def connectTo(self, addr):
         self.newConnectionLock.acquire()
+#         cprint.orange(addr)
         assert self.msgq != None
         assert self.newConnectionSocket == None
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
@@ -474,6 +474,7 @@ class RpcManager:
         self.sendMsg(s, msg)
         self.newConnectionSem.acquire()
         peer = self.neighbours.get(s, None)
+        self.newConnectionSocket = None
         self.newConnectionLock.release()
         return peer
 

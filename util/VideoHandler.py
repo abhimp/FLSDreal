@@ -91,7 +91,7 @@ class VideoHandler:
         assert num not in chunks
 
         url = self.getChunkUrl(ql, num, typ)
-#         print(url, num)
+        print(url, num)
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
         if dt is not None:
