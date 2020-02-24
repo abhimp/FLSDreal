@@ -85,6 +85,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.videoHandler = videoHandler
         self.options = options
         self.status = None
+        self.videoQualities = list(range(len(self.videoHandler.vidInfo["bitrates"])))
 
         self.grpMan = None
         self.groupReady = False
@@ -136,7 +137,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             return max(ql)
         if self.groupInfo is not None:
             qls = self.groupInfo.chunkInfo.setdefault(self.nextSegId, [])
-            cprint.orange("getGroupVidQuality", qls)
+#             cprint.orange("getGroupVidQuality", qls)
             if len(qls) > 0:
                 ql = max([q[1] for q in qls])
                 self.getChunkFromGroup[(ql, self.nextSegId)] = True
@@ -154,7 +155,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         assert self.groupInfo is not None
 
         qls = self.groupInfo.chunkInfo.setdefault(segId, [])
-        cprint.orange("getChunkFileDescriptor", qls)
+#         cprint.orange("getChunkFileDescriptor", qls)
         pgid = [q[0] for q in qls if q[1] == ql][0]
 #         cprint.orange(pgid, self.gid, self.groupInfo.chunkInfo[segId])
         assert pgid != self.gid
@@ -168,6 +169,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         assert not self.groupReady
         self.initGroupInfo()
         self.groupStartedFromSegId = segId
+        cprint.orange("groupstarting from", segId)
         self.groupReady = True
         self.groupDownloaderThread = threading.Thread(target=self.downloadAsTeamplayer); self.groupDownloaderThread.start()
         self.groupActionThread = threading.Thread(target=self.downloadFromDownloadQueue); self.groupActionThread.start()
@@ -182,7 +184,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.broadcast(self.exposed_qualityDownloading, num, ql)
 #         cprint.magenta(f"downloading {num}, {ql}")
         url = self.videoHandler.getChunkUrl(ql, num, typ)
-#         print(url, num)
+        print(url, num)
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
         if dt is not None:
@@ -197,6 +199,8 @@ class DummyPlayer(GroupMan.RpcPeer):
 
 
     def selectGroupQl(self, segId):
+        ql = random.choice(self.videoQualities)
+        return ql
         return 0 #TODO add algo
 
     def selectNextDownloader(self, segId):
@@ -207,6 +211,11 @@ class DummyPlayer(GroupMan.RpcPeer):
         return nextDownloader
 
     def downloadAsTeamplayer(self):
+        if self.gid > 1:
+            gsizes, gchunkInfo, gdownloader = self.neighbours[0].getGroupChunkInfos()
+            self.groupInfo.sizes.update(gsizes)
+            self.groupInfo.chunkInfo.update(gchunkInfo)
+            self.groupInfo.downloader.update(gdownloader)
         while True:
             action = self.teamplayerQueue.get()
             cprint.magenta("recvd action", action)
@@ -404,3 +413,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupInfo.downloader.setdefault(segId, {})[gid] = -1
         if self.gid == gid:
             self.teamplayerQueue.put((segId,))
+
+    def exposed_getGroupChunkInfos(self, rpeer):
+        return self.groupInfo.sizes, self.groupInfo.chunkInfo, self.groupInfo.downloader
