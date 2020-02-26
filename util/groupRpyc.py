@@ -122,7 +122,7 @@ class RpcPeer:
 
     def __getattr__(self, name):
         if self.rpcs is None:
-            raise AttributeError()
+            raise AttributeError(name)
         if name in self.rpcs:
             return self.rpcs[name]
         if "exposed_" + name in self.rpcs:
@@ -463,7 +463,11 @@ class RpcManager:
         assert self.msgq != None
         assert self.newConnectionSocket == None
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        s.connect(addr)
+        try:
+            s.connect(addr)
+        except Exception as e:
+            self.newConnectionLock.release()
+            raise e
         self.addSocketToMonitor(s)
         msg = {
                 KIND_KIND: KIND_INIT,

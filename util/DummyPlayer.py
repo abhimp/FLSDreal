@@ -66,11 +66,16 @@ class AutoUpdateObject():
     def commit(self):
         if self.__int_readonly:
             raise PermissionError("Readonly object")
-        if self.__int_cb is not None and callable(self.__int_cb):
+        if self.__int_cb is None or not callable(self.__int_cb):
             return
         keys = self.__int_changed.copy()
         self.__int_changed.clear()
         self.__int_cb({x: self.__int_values[x] for x in keys})
+
+    def getCurrentStatus(self):
+        return self.__int_values
+    def getCb(self):
+        return self.__int_cb
 
 def toDict(**kw):
     return kw
@@ -87,9 +92,11 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.status = None
         self.videoQualities = list(range(len(self.videoHandler.vidInfo["bitrates"])))
 
+        self.connectedToNeighbour = False
         self.grpMan = None
         self.groupReady = False
         self.neighbours = {}
+        self.neighboursLock = threading.Lock()
         self.peerIds = set()
         self.gid = 0
         self.groupStartedFromSegId = -1
@@ -99,6 +106,11 @@ class DummyPlayer(GroupMan.RpcPeer):
 
         self.groupInfo = None
         self.getChunkFromGroup = {}
+
+        #=============================
+        self.downloadStartedAt = 0
+        self.downloadFinishedAt = -1
+        #=============================
 
         super().__init__()
 
@@ -120,7 +132,9 @@ class DummyPlayer(GroupMan.RpcPeer):
         if self.grpMan is None:
             return
         self.status.playbackTime = playbackTime
-#         self.status.commit()
+#         self.status.idleTime = 0 if self.downloadStartedAt > self.downloadFinishedAt else time.time() - self.downloadFinishedAt
+#         cprint.blue("performing status update, the", callable," func is", self.status.getCb())
+        self.status.commit()
 
     def getChunkSize(self, ql, num, mt):
         if mt == "audio":
@@ -176,6 +190,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 #         cprint.magenta("GROUP STARTED")
 
     def loadChunk(self, ql, num, typ):
+        self.downloadStartedAt = time.time()
         num = int(num)
         qls = self.videoHandler.getCachedQuality(num, typ)
         assert ql not in qls
@@ -196,6 +211,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 #         cprint.blue(f"broadcasting read data for segId {num}")
         self.broadcast(self.exposed_downloaded, num, ql)
 #         cprint.blue(f"broadcasted read data for segId {num}")
+        self.downloadFinishedAt = time.time()
 
 
     def selectGroupQl(self, segId):
@@ -220,6 +236,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             action = self.teamplayerQueue.get()
             cprint.magenta("recvd action", action)
             segId = action[0]
+            self.status.qlen += 1
             self.downloadQueue.put((segId, "*"))
             sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
             if sleepTime > 0:
@@ -230,9 +247,16 @@ class DummyPlayer(GroupMan.RpcPeer):
     def downloadFromDownloadQueue(self):
         while True:
             segId, ql = self.downloadQueue.get()
+            self.status.qlen -= 1
             if ql == "*": #i.e. run quality selection
                 ql = self.selectGroupQl(segId)
             self.loadChunk(ql, segId, "video")
+
+    def prepareStatusObj(self, node, cb=None):
+        node.status = AutoUpdateObject(cb)
+        node.status.playbackTime = 0
+        node.status.idleTime = 0
+        node.status.qlen = 0
 
     # Entry point from the player. return segment if available other wise return null
     # Player might stall if returned without any segment.
@@ -267,6 +291,9 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.nextSegId += 1
         if self.grpMan is None and self.nextSegId - self.startSegment >= 3:
             self.startGroup()
+        if self.grpMan is not None and self.options.neighbourAddress is not None and not self.connectedToNeighbour:
+            cprint.green("Connection failed before, trying again")
+            self.connectToNeighbour()
         return segs, fds, l
 
     def sendChunk(self, con, mt, ql, segId):
@@ -296,38 +323,50 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.grpMan.start()
         self.grpMan.addPeerRemovedCB(self.peerRemoved)
         self.grpMan.addDataConnRecvCB(self.sendChunkThroughSocket)
+        self.prepareStatusObj(self, self.sendStatus)
         if self.options.neighbourAddress is not None:
-            addr, port = self.options.neighbourAddress.split(":")
-            peer = self.grpMan.connectTo((addr, int(port)))
-            neighbours, mid, rid = peer.addme()
-            self.gid = mid
-            peer.gid = rid
-            self.neighbours[rid] = peer
-            self.peerIds.add(mid)
-            self.peerIds.add(rid)
-            peer.status = AutoUpdateObject(None)
-            peer.status.setReadOnly(True)
-#             self.iamStarter = False
-
-            addPeerSem = threading.Semaphore(0)
-            for pid, addr in neighbours.items():
-                rpeer = self.grpMan.connectTo(addr)
-                cb = CallableObj(self.addPeerCallBack, addPeerSem, rpeer, pid)
-                rpeer.fyiIamNewHere.asyncCall(cb, self.gid)
-            for pid, addr in neighbours.items():
-                addPeerSem.acquire()
-            cprint.blue(self.neighbours)
+            self.connectToNeighbour()
         else:
             self.peerIds.add(self.gid)
-        self.status = AutoUpdateObject(self.sendStatus)
+
+    def connectToNeighbour(self):
+        addr, port = self.options.neighbourAddress.split(":")
+        try:
+            peer = self.grpMan.connectTo((addr, int(port)))
+        except ConnectionRefusedError:
+            cprint.red("connectionFailed")
+            return
+        neighbours, mid, rid = peer.addme()
+        self.gid = mid
+        peer.gid = rid
+        self.addNeighbour(peer, rid)
+#             self.neighbours[rid] = peer
+        self.peerIds.add(mid)
+        self.peerIds.add(rid)
+        self.prepareStatusObj(peer)
+        peer.status.setReadOnly(True)
+#             self.iamStarter = False
+
+        addPeerSem = threading.Semaphore(0)
+        for pid, addr in neighbours.items():
+            rpeer = self.grpMan.connectTo(addr)
+            cb = CallableObj(self.addPeerCallBack, addPeerSem, rpeer, pid)
+            rpeer.fyiIamNewHere.asyncCall(cb, self.gid)
+        for pid, addr in neighbours.items():
+            addPeerSem.acquire()
+        self.connectedToNeighbour = True
+        cprint.blue(self.neighbours)
+#         self.status = AutoUpdateObject(self.sendStatus)
 #         self.status.setAutoCommit(True)
 
     def addPeerCallBack(self, sem, rpeer, pid, rid, err):
-#         cprint.orange(rid, pid)
+        if rid != pid: cprint.orange("Not matching", rid, pid)
         assert rid == pid
         rpeer.gid = pid
-        self.neighbours[pid] = rpeer
-        rpeer.status = AutoUpdateObject(None)
+        self.addNeighbour(rpeer)
+#         self.neighbours[pid] = rpeer
+        self.prepareStatusObj(rpeer)
+#         rpeer.status = AutoUpdateObject(None)
         rpeer.status.setReadOnly(True)
         sem.release()
         pass
@@ -336,7 +375,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def broadcast(self, func, *args, **kwargs):
         assert self.groupReady
         fname = func.__name__
-        for x, peer in self.neighbours.items():
+        for x, peer in self.getNeighbours(): #self.neighbours.items():
             fn = getattr(peer, fname)
 #             fn.asyncCall(CallableObj(fname), *args, **kwargs)
             fn.asyncCall(self.dummyCB, *args, **kwargs)
@@ -353,20 +392,46 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def peerRemoved(self, peer):
         cprint.cyan(peer, peer.gid)
-        del self.neighbours[peer.gid]
+        self.removeNeighbour(peer.gid)
+#         del self.neighbours[peer.gid]
 
     def sendStatus(self, status):
-        for x, peer in self.neighbours.items():
+        cprint.blue("sending status")
+        for x, peer in self.getNeighbours(): #self.neighbours.items():
             peer.updateStatus.asyncCall(self.dummyCB, status)
+
+    def getNeighbours(self):
+        self.neighboursLock.acquire()
+        neighbours = [(x,y) for x,y in self.neighbours.items()]
+        self.neighboursLock.release()
+        return neighbours
+
+    def addNeighbour(self, rpeer, gid = None):
+        gid = gid if gid is not None else rpeer.gid
+        self.neighboursLock.acquire()
+        self.neighbours[gid] = rpeer
+        self.neighboursLock.release()
+
+    def removeNeighbour(self, gid):
+        self.neighboursLock.acquire()
+        if gid in self.neighbours: del self.neighbours[gid]
+        self.neighboursLock.release()
+    def isNeighbour(self, gid):
+        self.neighboursLock.acquire()
+        ret = gid in self.neighbours
+        self.neighboursLock.release()
+        return ret
 
 #===========================================
     def exposed_addme(self, rpeer):
 #         if not self.groupReady: return
         yid = len(self.neighbours) + 1
-        neighbours = {x:y.getAddr() for x,y in self.neighbours.items()}
+        neighbours = {x:y.getAddr() for x,y in self.getNeighbours()} #self.neighbours.items()}
         rpeer.gid = yid
-        self.neighbours[yid] = rpeer
-        rpeer.status = AutoUpdateObject(None)
+        self.addNeighbour(rpeer, yid)
+#         self.neighbours[yid] = rpeer
+#         rpeer.status = AutoUpdateObject(None)
+        self.prepareStatusObj(rpeer)
         rpeer.status.setReadOnly(True)
         self.peerIds.add(yid)
         if len(self.peerIds) == 2:
@@ -382,7 +447,8 @@ class DummyPlayer(GroupMan.RpcPeer):
         if not self.groupReady: return
         rpeer.gid = rid
         self.peerIds.add(rid)
-        self.neighbours[rid] = rpeer
+        self.addNeighbour(rpeer, rid)
+#         self.neighbours[rid] = rpeer
         return self.gid
 
     def exposed_curStat(self, rpeer, playbackTime):
@@ -403,7 +469,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def exposed_downloaded(self, rpeer, segId, ql):
         if not self.groupReady: return
         self.groupInfo.chunkInfo.setdefault(segId, []).append((rpeer.gid, ql))
-        cprint.red(f"{self.gid}:", f"seg {segId} of ql {ql} downloaded by {rpeer.gid}")
+#         cprint.red(f"{self.gid}:", f"seg {segId} of ql {ql} downloaded by {rpeer.gid}")
 
     def exposed_setNextDownloader(self, rpeer, segId, gid):
         if not self.groupReady:
