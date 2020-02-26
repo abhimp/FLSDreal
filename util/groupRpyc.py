@@ -81,14 +81,10 @@ class RpcPeer:
     def call(self, name, asyncCB, *a, **b):
         sem = None
         clid = self.getNextCallId()
-#         cprint.orange(f"RPC clid:{clid} for {name}")
         if asyncCB is None:
             self.lock.acquire()
-#             sem = threading.Semaphore(0)
-#             self.callSems[clid] = sem
         else:
             self.callAsyncCBs[clid] = asyncCB
-#         cprint.orange(f"RPC {name} with clid:{clid} firing {asyncCB is None}")
         self.timeers[clid] = time.time()
         self.callName[clid] = name
         self.callback(name, self.sock, clid, *a, **b)
@@ -96,8 +92,6 @@ class RpcPeer:
             return
         self.sem.acquire()
         self.lock.release()
-#         sem.acquire()
-#         del self.callSems[clid]
         ret = self.callReturns.get(clid, None)
         retval, error = None, None
         if ret is not None:
@@ -110,9 +104,6 @@ class RpcPeer:
 
     def returnRecvd(self, blob, ret, error):
         clid = blob
-#         cprint.orange(f"RPC returned clid:{clid}")
-#         cprint.orange(f"rpc {self.callName[clid]} took {time.time() - self.timeers[clid]}")
-#         sem = self.callSems.get(clid, None)
         asyncCB = self.callAsyncCBs.get(clid, None)
         if asyncCB is not None:
             asyncCB(ret, error)
@@ -240,9 +231,7 @@ class RpcManager:
             assert server.fileno() > 2
             inputs = [server, notificationSock] + self.peerConnections[:]
             output = [x for x, y in self.sendq.items() if not y.empty()]
-#             print(inputs, output)
             readable, writable, exceptions = select.select(inputs, output, []) # Wait to for some data
-#             cprint.blue(f"breaking off select at {time.time()}, in:", [x.fileno() for x in readable], "out:", [x.fileno() for x in writable])
 
             if notificationSock in readable:
                 while True:
@@ -335,7 +324,6 @@ class RpcManager:
     def call(self, name, con, blob, *args, **kwargs):
         rpc = (name, args, kwargs, blob)
         msg = {KIND_KIND: KIND_CALL}
-#         cprint.cyan(f"calling {name} for remote")
         self.sendMsg(con, msg, rpc)
 
     def addNeighbourStub(self, msg, con):
@@ -360,7 +348,6 @@ class RpcManager:
         sq = self.sendq[con]
         del self.msgq[con]
         del self.sendq[con]
-#         del self.neighbours[con]
         sq.clear()
         self.notificationPipe.send(b"p")
         con.setblocking(True)
@@ -370,7 +357,6 @@ class RpcManager:
             con.close()
             return
         self.dataConnRecvCB(con, mt, ql, segId)
-#         con.close()
 
     def handleInit(self, msg, con):
         assert con not in self.neighbours
@@ -396,8 +382,6 @@ class RpcManager:
         ret = None
         error = None
 
-#         cprint.cyan(f"broadcasting {fname} from {peer}")
-#         cprint.green(f"RPC {fname} received with callid {blob}")
         time1 = time.time()
         try:
             func = self.stubFunctions[fname]
@@ -406,7 +390,6 @@ class RpcManager:
             track = tb.format_exc()
             error = track
         time2 = time.time()
-#         cprint.green(f"RPC {fname} returning with callid {blob}")
         payload = [ret, error, blob]
         self.sendMsg(con, rmsg, payload, sameThread=True)
 
@@ -446,7 +429,6 @@ class RpcManager:
     def createDataSocket(self, peer, mt, ql, segId):
         laddr = peer.addr
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-#         print(laddr)
         s.connect(laddr)
         msg = {
                 KIND_KIND: KIND_DATA_INIT,
@@ -459,7 +441,6 @@ class RpcManager:
 
     def connectTo(self, addr):
         self.newConnectionLock.acquire()
-#         cprint.orange(addr)
         assert self.msgq != None
         assert self.newConnectionSocket == None
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
@@ -539,7 +520,6 @@ def dataSockRecv(sock, *a):
 def testAsParent():
     p = TestPeer(9800)
     mon = RpcManager(9800, p)
-#     mon.dataConnRecvCB = dataSockRecv
     mon.start()
     mon.join()
 
