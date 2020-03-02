@@ -1,6 +1,7 @@
 import datetime
 import json
 import io
+import time
 from urllib.request import urlopen
 from urllib.parse import urljoin
 
@@ -15,6 +16,8 @@ class VideoHandler:
         self.mpdUrl = mpd
         self.chunks = {}
         self.chunkSizes = {}
+        self.downloadStat = []
+        self.weightedThroughput = 0
 
         self.getTimeDrift()
         self.getInitFiles()
@@ -22,6 +25,11 @@ class VideoHandler:
     def getSegmentDur(self):
         assert self.vidInfo['segmentDuration'] == self.audInfo['segmentDuration']
         return self.vidInfo['segmentDuration']
+
+    def updateDownloadStat(self, start, end, clen):
+        self.downloadStat += [[start, end, clen]]
+        thrpt = clen * 8/ (end - start)
+        self.weightedThroughput = 0.8*self.weightedThroughput + 0.2*thrpt if self.weightedThroughput else thrpt
 
     def getTimeDrift(self):
         timeUrl = urljoin(self.mpdUrl, self.timeUrl)
@@ -92,12 +100,16 @@ class VideoHandler:
 
         url = self.getChunkUrl(ql, num, typ)
 #         print(url, num)
+        start = time.time()
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
         if dt is not None:
             dt = json.loads(dt)
             self.updateChunkSizes(dt)
         chunks[num] = res.read()
+        end = time.time()
+        clen = len(chunks[num])
+        self.updateDownloadStat(start, end, clen)
 
     def addChunk(self, ql, num, typ, data):
         num = int(num)

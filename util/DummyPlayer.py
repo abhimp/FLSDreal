@@ -7,6 +7,7 @@ import json
 import multiprocessing as mp
 import socket
 import random
+import numpy as np
 
 from . import groupRpyc as GroupMan
 from . import cprint
@@ -100,6 +101,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.iamStarter = False
         self.downloadQueue = queue.PriorityQueue()
         self.teamplayerQueue = queue.Queue()
+        self.deadLines = {}
 
         self.groupInfo = None
         self.getChunkFromGroup = {}
@@ -121,7 +123,8 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.startSegment = self.nextSegId
 
     def initGroupInfo(self):
-        self.groupInfo = nestedObject.Obj(toDict(sizes={}, chunkInfo={}, downloader={}), nested=False)
+        self.groupInfo = nestedObject.Obj(toDict(sizes={}, chunkInfo={}, downloader={}, segQuality={}), nested=False)
+
         self.groupInfo.sizes.update(self.videoHandler.chunkSizes)
 
 
@@ -129,7 +132,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         if self.grpMan is None:
             return
         self.status.playbackTime = playbackTime
-#         self.status.idleTime = 0 if self.downloadStartedAt > self.downloadFinishedAt else time.time() - self.downloadFinishedAt
+        self.status.idleTime = 0 if self.downloadStartedAt > self.downloadFinishedAt else time.time() - self.downloadFinishedAt
 #         cprint.blue("performing status update, the", callable," func is", self.status.getCb())
         self.status.commit()
 
@@ -181,7 +184,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupActionThread = threading.Thread(target=self.downloadFromDownloadQueue); self.groupActionThread.start()
 
     def loadChunk(self, ql, num, typ):
-        self.downloadStartedAt = time.time()
         num = int(num)
         qls = self.videoHandler.getCachedQuality(num, typ)
         assert ql not in qls
@@ -189,40 +191,115 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.broadcast(self.exposed_qualityDownloading, num, ql)
         url = self.videoHandler.getChunkUrl(ql, num, typ)
         print(url, num)
+        self.downloadStartedAt = time.time()
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
+        resData = res.read()
         if dt is not None:
             dt = json.loads(dt)
             self.videoHandler.updateChunkSizes(dt)
             self.broadcast(self.exposed_updateChunkSizes, dt)
-        self.videoHandler.addChunk(ql, num, typ, res.read())
-        self.broadcast(self.exposed_downloaded, num, ql)
         self.downloadFinishedAt = time.time()
-
+        self.videoHandler.addChunk(ql, num, typ, resData)
+        self.broadcast(self.exposed_downloaded, num, ql)
+        self.videoHandler.updateDownloadStat(self.downloadStartedAt, self.downloadFinishedAt, len(resData))
 
     def selectGroupQl(self, segId):
+        now = time.time()
+        peers = [y for x, y in self.getNeighbours()] + [self]
+        segDur = self.videoHandler.getSegmentDur()
+        deadLine = segId*segDur - max([n.status.playbackTime for n in peers])
+
+        self.deadLines[segId] = now + deadLine
+        prog = self.status.dlQLen * 100
+
+        targetQl = max(self.videoHandler.getCachedQuality(self.groupStartedFromSegId - 1, "video"))
+        futureQl = None
+        pastQl = None
+        pastQls = []
+        i = 1
+        while segId - i >= self.groupStartedFromSegId:
+            try:
+                if segId + 1 in self.groupInfo.segQuality and futureQl is None:
+                    futureQl = max([q for gid, q in self.groupInfo.segQuality[segId + 1].items()])
+                    assert futureQl >= 0
+                if segId - 1 in self.groupInfo.segQuality:
+                    pql = max([q for gid, q in self.groupInfo.segQuality[segId - 1].items()])
+                    if pastQl is None: pastQl = pql
+                    pastQls += [pql]
+                if len(pastQls) > 4: break
+            except RuntimeError:
+                continue
+
+        clens = [int(segDur * x / 8) for x in self.videoHandler.vidInfo["bitrates"]]
+
+        if segId in self.groupInfo.sizes["video"]:
+            segInfo = self.groupInfo.sizes["video"][segId]
+            clens = [segInfo[x] for x in segInfo]
+
+
+        last5dls = np.array(self.videoHandler.downloadStat[-5:])
+        last5Time = (last5dls[:, 1]-last5dls[:, 0])
+        last5Thrpt = last5dls[:, 2] / last5Time # byte/sec
+        hthrpt = [1/x for x in last5Thrpt]  #harmonic average
+        hthrpt = len(hthrpt)/sum(hthrpt)
+
+
+        thrpt = min(hthrpt, last5Thrpt[-1], self.videoHandler.weightedThroughput/8) #BYTE/SEC
+
+        cprint.green("lalast5Thrpt", last5Thrpt, "hthrpt", hthrpt)
+
+        if deadLine <= 0:
+            return 0 #lowest quality as there is no time
+
+        times = [(deadLine - cl/thrpt, i) for i, cl in enumerate(clens)]
+        times = [x for x in times if x[0] > 0]
+        if len(times) == 0: #trivial case for
+            return 0
+        times.sort(key = lambda x:x[0])
+        ql = times[0][1]
+        if futureQl is not None and ql > futureQl:
+            cprint.orange("futureQl", futureQl)
+            return futureQl
+        if pastQl is not None and ql > pastQl:
+            if len(pastQls) >= 4 and min(pastQls) == max(pastQls):
+                cprint.orange("pastQl + 1", pastQl + 1)
+                return pastQl + 1
+            else:
+                cprint.orange("pastQl", pastQl)
+                return pastQl
+
+        cprint.orange("targetQl", targetQl)
+        return targetQl
+
+
+        #targetQl = lastQl[-1] if len(lastQl) > 1 else self._vAgent._vQualitiesPlayed[-1]
         ql = random.choice(self.videoQualities)
-        return ql
-        return 0 #TODO add algo
+        return ql #TODO add algo
 
     def selectNextDownloader(self, segId):
-        tmp = list(self.neighbours.keys())
-        nextDownloader = self.gid
-        if len(tmp) > 0:
-            nextDownloader = random.choice(tmp)#[0] #TODO call selectNextDownloader
-        return nextDownloader
+        peers = [y for x, y in self.getNeighbours()] + [self]
+        idleTimes = [0 if p.status.dlQLen <= 0 else p.status.idleTime for p in peers]
+        idleTimes = np.array(idleTimes)
+        qlen = [0 if p.status.dlQLen <= 0 else p.status.dlQLen for p in peers]
+        qlen = np.array(qlen) * 100
+
+        res = idleTimes - qlen
+        downloader = np.argmax(res)
+        downloader = peers[downloader]
+        return downloader.gid
 
     def downloadAsTeamplayer(self):
-        if self.gid > 1:
-            gsizes, gchunkInfo, gdownloader = self.neighbours[0].getGroupChunkInfos()
-            self.groupInfo.sizes.update(gsizes)
-            self.groupInfo.chunkInfo.update(gchunkInfo)
-            self.groupInfo.downloader.update(gdownloader)
+#         if self.gid > 1:
+#             gsizes, gchunkInfo, gdownloader = self.neighbours[0].getGroupChunkInfos()
+#             self.groupInfo.sizes.update(gsizes)
+#             self.groupInfo.chunkInfo.update(gchunkInfo)
+#             self.groupInfo.downloader.update(gdownloader)
         while True:
             action = self.teamplayerQueue.get()
             cprint.magenta("recvd action", action)
             segId = action[0]
-            self.status.qlen += 1
+            self.status.dlQLen += 1
             self.downloadQueue.put((segId, "*"))
             sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
             if sleepTime > 0:
@@ -233,16 +310,17 @@ class DummyPlayer(GroupMan.RpcPeer):
     def downloadFromDownloadQueue(self):
         while True:
             segId, ql = self.downloadQueue.get()
-            self.status.qlen -= 1
+            self.status.dlQLen -= 1
             if ql == "*": #i.e. run quality selection
                 ql = self.selectGroupQl(segId)
+                assert ql is not None
             self.loadChunk(ql, segId, "video")
 
     def prepareStatusObj(self, node, cb=None):
         node.status = AutoUpdateObject(cb)
         node.status.playbackTime = 0
         node.status.idleTime = 0
-        node.status.qlen = 0
+        node.status.dlQLen = 0
 
     # Entry point from the player. return segment if available other wise return null
     # Player might stall if returned without any segment.
@@ -427,11 +505,19 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def exposed_qualityDownloading(self, rpeer, segId, ql):
         if not self.groupReady: return
-        self.groupInfo.downloader.setdefault(segId, {})[rpeer.gid] = ql
+        self.groupInfo.segQuality.setdefault(segId, {})[rpeer.gid] = ql
 
     def exposed_updateChunkSizes(self, rpeer, chunkSizes):
         if not self.groupReady: return
-        self.groupInfo.sizes.update(chunkSizes)
+        for segId, info in chunkSizes.items():
+            if info is None:
+                continue
+            segId = int(segId)
+            for mt, chunks in info.items():
+                for ch in chunks:
+                    num = segId
+                    self.groupInfo.sizes.setdefault(mt, {}).setdefault(num, {})[ch[0]] = ch[1]
+#         self.groupInfo.sizes.update(chunkSizes)
 
     def exposed_downloaded(self, rpeer, segId, ql):
         if not self.groupReady: return
@@ -441,7 +527,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         if not self.groupReady:
             assert not self.iamStarter
             self.startGroupRelatedThreads(segId)
-        self.groupInfo.downloader.setdefault(segId, {})[gid] = -1
+        self.groupInfo.downloader.setdefault(segId, []).append(gid)
         if self.gid == gid:
             self.teamplayerQueue.put((segId,))
 
