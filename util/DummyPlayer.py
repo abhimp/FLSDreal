@@ -90,6 +90,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.status = None
         self.videoQualities = list(range(len(self.videoHandler.vidInfo["bitrates"])))
 
+        self.groupStarted = False
         self.connectedToNeighbour = False
         self.grpMan = None
         self.groupReady = False
@@ -102,6 +103,9 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.downloadQueue = queue.PriorityQueue()
         self.teamplayerQueue = queue.Queue()
         self.deadLines = {}
+        self.loadingChunk = False
+        self.teamplayerStartSem = threading.Semaphore(0)
+        self.downloadFrmQSem = threading.Semaphore(0)
 
         self.groupInfo = None
         self.getChunkFromGroup = {}
@@ -180,6 +184,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupStartedFromSegId = segId
         cprint.orange("groupstarting from", segId)
         self.groupReady = True
+        self.downloadFinishedAt = time.time()
         self.groupDownloaderThread = threading.Thread(target=self.downloadAsTeamplayer); self.groupDownloaderThread.start()
         self.groupActionThread = threading.Thread(target=self.downloadFromDownloadQueue); self.groupActionThread.start()
 
@@ -259,17 +264,17 @@ class DummyPlayer(GroupMan.RpcPeer):
         times.sort(key = lambda x:x[0])
         ql = times[0][1]
         if futureQl is not None and ql > futureQl:
-            cprint.orange("futureQl", futureQl)
+            cprint.orange(segId, "futureQl", futureQl)
             return futureQl
         if pastQl is not None and ql > pastQl:
             if len(pastQls) >= 4 and min(pastQls) == max(pastQls):
-                cprint.orange("pastQl + 1", pastQl + 1)
+                cprint.orange(segId, "pastQl + 1", pastQl + 1)
                 return pastQl + 1
             else:
-                cprint.orange("pastQl", pastQl)
+                cprint.orange(segId, "pastQl", pastQl)
                 return pastQl
 
-        cprint.orange("targetQl", targetQl)
+        cprint.orange(segId, "targetQl", targetQl)
         return targetQl
 
 
@@ -279,7 +284,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def selectNextDownloader(self, segId):
         peers = [y for x, y in self.getNeighbours()] + [self]
-        idleTimes = [0 if p.status.dlQLen <= 0 else p.status.idleTime for p in peers]
+        idleTimes = [p.status.idleTime for p in peers]
         idleTimes = np.array(idleTimes)
         qlen = [0 if p.status.dlQLen <= 0 else p.status.dlQLen for p in peers]
         qlen = np.array(qlen) * 100
@@ -287,6 +292,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         res = idleTimes - qlen
         downloader = np.argmax(res)
         downloader = peers[downloader]
+        cprint.orange(res)
         return downloader.gid
 
     def downloadAsTeamplayer(self):
@@ -295,6 +301,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 #             self.groupInfo.sizes.update(gsizes)
 #             self.groupInfo.chunkInfo.update(gchunkInfo)
 #             self.groupInfo.downloader.update(gdownloader)
+        self.teamplayerStartSem.acquire()
         while True:
             action = self.teamplayerQueue.get()
             cprint.magenta("recvd action", action)
@@ -308,6 +315,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             self.broadcast(self.exposed_setNextDownloader, segId+1, nextDownloader)
 
     def downloadFromDownloadQueue(self):
+        self.downloadFrmQSem.acquire(0)
         while True:
             segId, ql = self.downloadQueue.get()
             self.status.dlQLen -= 1
@@ -329,6 +337,9 @@ class DummyPlayer(GroupMan.RpcPeer):
         fds = []
         l = 0
         qualities = {"audio": 0, "video": 0}
+        if self.nextSegId == self.groupStartedFromSegId:
+            self.downloadFrmQSem.release()
+            self.teamplayerStartSem.release()
         if self.iamStarter or (self. groupReady and self.nextSegId >= self.groupStartedFromSegId):
             ql = self.getGroupVidQuality()
             if ql < 0:
@@ -390,6 +401,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             self.connectToNeighbour()
         else:
             self.peerIds.add(self.gid)
+            self.groupStarted = True
 
     def connectToNeighbour(self):
         addr, port = self.options.neighbourAddress.split(":")
@@ -404,7 +416,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.addNeighbour(peer, rid)
         self.peerIds.add(mid)
         self.peerIds.add(rid)
-        self.prepareStatusObj(peer)
         peer.status.setReadOnly(True)
 
         addPeerSem = threading.Semaphore(0)
@@ -415,6 +426,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         for pid, addr in neighbours.items():
             addPeerSem.acquire()
         self.connectedToNeighbour = True
+        self.groupStarted = True
         cprint.blue(self.neighbours)
 
     def addPeerCallBack(self, sem, rpeer, pid, rid, err):
@@ -422,7 +434,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         assert rid == pid
         rpeer.gid = pid
         self.addNeighbour(rpeer)
-        self.prepareStatusObj(rpeer)
         rpeer.status.setReadOnly(True)
         sem.release()
         pass
@@ -460,6 +471,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def addNeighbour(self, rpeer, gid = None):
         gid = gid if gid is not None else rpeer.gid
+        self.prepareStatusObj(rpeer)
         self.neighboursLock.acquire()
         self.neighbours[gid] = rpeer
         self.neighboursLock.release()
@@ -480,7 +492,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         neighbours = {x:y.getAddr() for x,y in self.getNeighbours()}
         rpeer.gid = yid
         self.addNeighbour(rpeer, yid)
-        self.prepareStatusObj(rpeer)
         rpeer.status.setReadOnly(True)
         self.peerIds.add(yid)
         if len(self.peerIds) == 2:
@@ -492,7 +503,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         rpeer.status.update(status)
 
     def exposed_fyiIamNewHere(self, rpeer, rid):
-        if not self.groupReady: return
+        if not self.groupStarted: return
         rpeer.gid = rid
         self.peerIds.add(rid)
         self.addNeighbour(rpeer, rid)
