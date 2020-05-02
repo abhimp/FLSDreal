@@ -301,7 +301,9 @@ class DummyPlayer(GroupMan.RpcPeer):
 #             self.groupInfo.sizes.update(gsizes)
 #             self.groupInfo.chunkInfo.update(gchunkInfo)
 #             self.groupInfo.downloader.update(gdownloader)
+        cprint.magenta("wait for sem1")
         self.teamplayerStartSem.acquire()
+        cprint.magenta("sem released")
         while True:
             action = self.teamplayerQueue.get()
             cprint.magenta("recvd action", action)
@@ -315,7 +317,9 @@ class DummyPlayer(GroupMan.RpcPeer):
             self.broadcast(self.exposed_setNextDownloader, segId+1, nextDownloader)
 
     def downloadFromDownloadQueue(self):
-        self.downloadFrmQSem.acquire(0)
+        cprint.cyan("wait for sem2")
+        self.downloadFrmQSem.acquire()
+        cprint.cyan("sem released")
         while True:
             segId, ql = self.downloadQueue.get()
             self.status.dlQLen -= 1
@@ -337,14 +341,18 @@ class DummyPlayer(GroupMan.RpcPeer):
         fds = []
         l = 0
         qualities = {"audio": 0, "video": 0}
-        if self.nextSegId == self.groupStartedFromSegId:
+        if self.nextSegId == self.groupStartedFromSegId or self.iamStarter: #best place to hold it.
+            cprint.cyan("releasing sem2")
             self.downloadFrmQSem.release()
+            cprint.magenta("releasing sem1")
             self.teamplayerStartSem.release()
         if self.iamStarter or (self. groupReady and self.nextSegId >= self.groupStartedFromSegId):
             ql = self.getGroupVidQuality()
             if ql < 0:
                 return [], [], 0
             qualities["video"] = ql
+        if self.videoHandler.ended(self.nextSegId):
+            return [{"eof" : True}], [], 0
         for mt in ["audio", "video"]:
             ql = qualities[mt]
             seg = {}
@@ -537,7 +545,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def exposed_setNextDownloader(self, rpeer, segId, gid):
         if not self.groupReady:
             assert not self.iamStarter
-            self.startGroupRelatedThreads(segId)
+            self.startGroupRelatedThreads(segId) #if i am not starter
         self.groupInfo.downloader.setdefault(segId, []).append(gid)
         if self.gid == gid:
             self.teamplayerQueue.put((segId,))

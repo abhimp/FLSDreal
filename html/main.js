@@ -13,6 +13,8 @@ var audSegUpto = -1
 var vidSegUpto = -1
 
 var SegmentUpdatedCallBack = null
+var msrc = null
+var showEnded = false
 
 function onSegmentAdded(repId, segId, mediaType){
     if(mediaType == "vid")
@@ -74,6 +76,11 @@ function applyAction(body, info) {
         var seg = segs[i]
         if(seg === null)
             continue
+        if (typeof seg["eof"] !== "undefined" && seg["eof"] == true) {
+            msrc.endOfStream()
+            showEnded = true
+            return
+        }
 
         var segId = seg['seg']
         var repId = seg['rep']
@@ -109,6 +116,8 @@ function applyAction(body, info) {
 }
 
 function getAction(){
+    if(showEnded)
+        return
     var xhr = new XMLHttpRequest()
     xhr.open("POST", "action", true)
     try{

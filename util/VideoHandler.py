@@ -18,6 +18,7 @@ class VideoHandler:
         self.chunkSizes = {}
         self.downloadStat = []
         self.weightedThroughput = 0
+        self.lastSeg = -1
 
         self.getTimeDrift()
         self.getInitFiles()
@@ -25,6 +26,9 @@ class VideoHandler:
     def getSegmentDur(self):
         assert self.vidInfo['segmentDuration'] == self.audInfo['segmentDuration']
         return self.vidInfo['segmentDuration']
+
+    def ended(self, segId):
+        return self.lastSeg != -1 and segId > self.lastSeg
 
     def updateDownloadStat(self, start, end, clen):
         self.downloadStat += [[start, end, clen]]
@@ -72,6 +76,9 @@ class VideoHandler:
             if info is None:
                 continue
             segId = int(segId)
+            if len(info) == 0:
+                if self.lastSeg == -1 or self.lastSeg >= segId:
+                    self.lastSeg = segId - 1
             for mt, chunks in info.items():
                 for ch in chunks:
                     num = segId
