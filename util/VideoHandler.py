@@ -17,6 +17,7 @@ class VideoHandler:
         self.chunks = {}
         self.chunkSizes = {}
         self.downloadStat = []
+        self.downloadQualityInfo = {}
         self.weightedThroughput = 0
         self.lastSeg = -1
 
@@ -30,10 +31,12 @@ class VideoHandler:
     def ended(self, segId):
         return self.lastSeg != -1 and segId > self.lastSeg
 
-    def updateDownloadStat(self, start, end, clen):
+    def updateDownloadStat(self, start, end, clen, num, ql, typ):
+        index = len(self.downloadStat)
         self.downloadStat += [[start, end, clen]]
         thrpt = clen * 8/ (end - start)
         self.weightedThroughput = 0.8*self.weightedThroughput + 0.2*thrpt if self.weightedThroughput else thrpt
+        self.downloadQualityInfo.setdefault(typ, []).append([num, ql, inde])
 
     def getTimeDrift(self):
         timeUrl = urljoin(self.mpdUrl, self.timeUrl)
@@ -116,7 +119,7 @@ class VideoHandler:
         chunks[num] = res.read()
         end = time.time()
         clen = len(chunks[num])
-        self.updateDownloadStat(start, end, clen)
+        self.updateDownloadStat(start, end, clen, num, ql, typ)
 
     def addChunk(self, ql, num, typ, data):
         num = int(num)
