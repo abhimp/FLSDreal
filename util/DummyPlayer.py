@@ -81,10 +81,10 @@ def toDict(**kw):
 class DummyPlayer(GroupMan.RpcPeer):
     def __init__(self, videoHandler, options):
         self.playbackTime = 0
+        self.playerBuffers = []
         self.setPlaybackTime = 0
         self.nextSegId = 0
         self.startSegment = 0
-        self.buffer = []
         self.videoHandler = videoHandler
         self.options = options
         self.status = None
@@ -120,20 +120,25 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.init()
 
     def BOLA(self):
+        typ = 'video'
+
         V = 0.93
         lambdaP = 5 # 13
         sleepTime = 0
-        if len(agent._vRequests) == 0:
-            return 0, 0
-        buflen = agent._vBufferUpto - agent._vPlaybacktime
-        if (agent._vMaxPlayerBufferLen - self._videoInfo.segmentDuration) <= buflen:
-            sleepTime = buflen + self._videoInfo.segmentDuration - agent._vMaxPlayerBufferLen
+        chunkHistory = self.videoHandler.getChunkDownloadDetails(typ)
+        if len(chunkHistory) == 0:
+            return 0
+        bufUpto = 0
+        for x in self.buffers:
+            bufUpto = x[1]
+            break
+        buflen = bufUpto - self.playbackTime
 
-        p = self._videoInfo.segmentDuration
-        SM = float(self._videoInfo.bitrates[-1])
-        lastM = agent._vRequests[-1].qualityIndex #last bitrateindex
+        p = self.videoHandler.getSegmentDur()
+        SM = float(self.videoHandler.getBitrates(typ)[-1])
+        lastM = chunkHistory[-1][1] #last bitrateindex
         Q = buflen/p
-        Qmax = self._agent._vMaxPlayerBufferLen/p
+        Qmax = 30/p
         ts = agent._vPlaybacktime - agent._vStartingPlaybackTime
         te = self._videoInfo.duration - agent._vPlaybacktime
         t = min(ts, te)
@@ -158,7 +163,7 @@ class DummyPlayer(GroupMan.RpcPeer):
                 mp = mp - 1
             M = mp
         sleepTime = max(p * (Q - QDmax + 1), 0)
-        return sleepTime, M
+        return M
 
     def init(self):
         dur = self.videoHandler.getSegmentDur()
@@ -168,6 +173,8 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.startSegment = self.nextSegId
 
     def updateState(self, playbackTime, buffers):
+        self.playerBuffers = buffers
+        self.playbackTime = playbackTime
         if self.grpMan is None:
             return
         self.status.playbackTime = playbackTime
@@ -203,6 +210,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         segs = []
         fds = []
         l = 0
+        vidQl = self.BOLA()
         qualities = {"audio": 0, "video": 0} #need to add bola
         if self.nextSegId == self.groupStartedFromSegId or self.iamStarter: #best place to hold it.
             cprint.cyan("releasing sem2")
