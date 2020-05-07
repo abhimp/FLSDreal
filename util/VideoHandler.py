@@ -36,7 +36,7 @@ class VideoHandler:
         self.downloadStat += [[start, end, clen]]
         thrpt = clen * 8/ (end - start)
         self.weightedThroughput = 0.8*self.weightedThroughput + 0.2*thrpt if self.weightedThroughput else thrpt
-        self.downloadQualityInfo.setdefault(typ, []).append([num, ql, inde])
+        self.downloadQualityInfo.setdefault(typ, []).append([num, ql, index])
 
     def getTimeDrift(self):
         timeUrl = urljoin(self.mpdUrl, self.timeUrl)
