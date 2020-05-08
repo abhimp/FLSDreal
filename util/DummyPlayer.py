@@ -132,7 +132,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupInfo.sizes.update(self.videoHandler.chunkSizes)
 
 
-    def groupUpdateState(self, playbackTime, buffers):
+    def updateState(self, playbackTime, buffers):
         if self.grpMan is None:
             return
         self.status.playbackTime = playbackTime
