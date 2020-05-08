@@ -16,6 +16,10 @@ var SegmentUpdatedCallBack = null
 var msrc = null
 var showEnded = false
 
+//Plaback time
+var stalledAt = -1;
+var totalStalled = 0; //REQ
+
 function onSegmentAdded(repId, segId, mediaType){
     if(mediaType == "vid")
         vidSegUpto = segId
@@ -77,8 +81,8 @@ function applyAction(body, info) {
         if(seg === null)
             continue
         if (typeof seg["eof"] !== "undefined" && seg["eof"] == true) {
-            msrc.endOfStream()
             showEnded = true
+            msrc.endOfStream()
             return
         }
 
@@ -138,6 +142,7 @@ function getAction(){
 
     xhr.setRequestHeader("X-PlaybackTime", roundd(videoElement.currentTime, 3))
     xhr.setRequestHeader("X-Buffer", serializeTimerange(videoElement.buffered))
+    xhr.setRequestHeader("X-Stall", roundd((totalStalled + getCurStall())/1000, 3))
 
     xhr.send()
 }
@@ -150,6 +155,39 @@ function setDomElement() {
     videoElement.controls = true
     videoElement.autoplay = true
     //videoElement.muted = true
+}
+
+function setVideoEventHandler(videoElement) {
+    videoElement.onwaiting  = function(){waitingForFrame(); console.log("onwaiting")}
+    videoElement.onplaying  = function(){startPlaying(); console.log("onplaying")}
+    videoElement.onended    = function(){finishedPlayback(); console.log("onended")}
+}
+
+function getCurStall() {
+    if(stalledAt < 0)
+        return 0
+    return new Date().getTime() - stalledAt
+}
+
+function finishedPlayback() {
+    if(showEnded) {
+        console.log("showEnded")
+        // eofReached = false;
+        // getNextAction()
+    }
+}
+
+function waitingForFrame() {
+    if(stalledAt == -1)
+        stalledAt = new Date().getTime()
+}
+
+function startPlaying() {
+    var curTime = new Date().getTime()
+    if(stalledAt !== -1) {
+        totalStalled += curTime - stalledAt
+        stalledAt = -1
+    }
 }
 
 function setUpStart() {

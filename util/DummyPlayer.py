@@ -84,6 +84,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.playbackTime = 0
         self.startPlaybackTime = -1
         self.playerBuffers = []
+        self.totalStalled = 0
 
         self.setPlaybackTime = 0
         self.nextSegId = 0
@@ -186,9 +187,10 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.nextSegId = int(self.setPlaybackTime/dur)
         self.startSegment = self.nextSegId
 
-    def updateState(self, playbackTime, buffers):
+    def updateState(self, playbackTime, buffers, totalStalled):
         self.playerBuffers = buffers[:]
         self.playbackTime = playbackTime
+        self.totalStalled = totalStalled
         if self.grpMan is None:
             return
         self.status.playbackTime = playbackTime

@@ -58,7 +58,8 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
         elif self.path.endswith("action"):
             playbackTime = float(self.headers.get("X-PlaybackTime"))
             buffered = json.loads(self.headers.get("X-buffer"))
-            actions, segs, fds, l = getNextChunks(playbackTime, buffered)
+            totalStalled = float(self.headers.get("X-Stall", '0'))
+            actions, segs, fds, l = getNextChunks(playbackTime, buffered, totalStalled)
 
             datas = {"actions": actions, "segs": segs}
 
@@ -88,10 +89,10 @@ def initVideo():
     dPlayer = DummyPlayer(videoHandler, options)
     return videoHandler.getJson()
 
-def getNextChunks(playbackTime, buffers):
+def getNextChunks(playbackTime, buffers, totalStalled):
     global dPlayer
     segDur = dPlayer.videoHandler.getSegmentDur()#.vidInfo["segmentDuration"]
-    dPlayer.updateState(playbackTime, buffers)
+    dPlayer.updateState(playbackTime, buffers, totalStalled)
 #     print(playbackTime, segDur, buffers, dPlayer.nextSegId, dPlayer.setPlaybackTime)
     actions = {}
     if dPlayer.setPlaybackTime > 0:
