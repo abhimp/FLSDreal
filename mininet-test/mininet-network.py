@@ -74,7 +74,7 @@ def myNetwork():
     cmd = xterm + "-T '" + h2.name + f"' {WD}/client-0.sh "
     cterm = runX11WithHost(h2, cmd)
 
-    time.sleep(10)
+    time.sleep(24)
     cmd = xterm + "-T '" + h3.name + f"' {WD}/client-1.sh "
     cterm2 = runX11WithHost(h3, cmd)
 
