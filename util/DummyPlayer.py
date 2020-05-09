@@ -1,4 +1,5 @@
 import io
+import math
 from urllib.request import urlopen
 import queue
 import threading
@@ -81,7 +82,9 @@ def toDict(**kw):
 class DummyPlayer(GroupMan.RpcPeer):
     def __init__(self, videoHandler, options):
         self.playbackTime = 0
+        self.startPlaybackTime = -1
         self.playerBuffers = []
+
         self.setPlaybackTime = 0
         self.nextSegId = 0
         self.startSegment = 0
@@ -125,34 +128,43 @@ class DummyPlayer(GroupMan.RpcPeer):
         V = 0.93
         lambdaP = 5 # 13
         sleepTime = 0
-        chunkHistory = self.videoHandler.getChunkDownloadDetails(typ)
+        chunkHistory = self.videoHandler.getChunkDownloadDetails(typ) # [[segid, qlid, download_id]]
         if len(chunkHistory) == 0:
             return 0
+        if self.playbackTime < self.startPlaybackTime:
+            return 0
         bufUpto = 0
-        for x in self.buffers:
+        for x in self.playerBuffers:
             bufUpto = x[1]
             break
         buflen = bufUpto - self.playbackTime
 
+        dlDetail = self.videoHandler.getDownloadStat(chunkHistory[-1][2])
+        lastThroughput = dlDetail[2] * 8 / (dlDetail[1] - dlDetail[0])
+
         p = self.videoHandler.getSegmentDur()
-        SM = float(self.videoHandler.getBitrates(typ)[-1])
+        bitrates = self.videoHandler.getBitrates(typ)
+        SM = float(bitrates[-1])
+        vms = [math.log(sm/SM) for sm in bitrates]
+
         lastM = chunkHistory[-1][1] #last bitrateindex
         Q = buflen/p
         Qmax = 30/p
-        ts = agent._vPlaybacktime - agent._vStartingPlaybackTime
-        te = self._videoInfo.duration - agent._vPlaybacktime
+        ts = self.playbackTime - self.startPlaybackTime
+        te = ts + 1 # bad hack, it should have been video.duration - playbacktime
         t = min(ts, te)
         tp = max(t/2, 3 * p)
         QDmax = min(Qmax, tp/p)
 
-        VD = (QDmax - 1)/(self._vms[0] + lambdaP)
+        VD = (QDmax - 1)/(vms[0] + lambdaP)
 
-        M = np.argmax([((VD * self._vms[m] + VD*lambdaP - Q)/sm) \
-                for m,sm in enumerate(self._videoInfo.bitrates)])
+        M = np.argmax([((VD * vms[m] + VD*lambdaP - Q)/sm) \
+                for m,sm in enumerate(bitrates)])
+        M = int(M)
         if M < lastM:
-            r = agent._vRequests[-1].throughput #throughput
-            mp = min([m for m,sm in enumerate(self._videoInfo.bitrates) if sm/p < max(r, SM)] + [len(self._videoInfo.bitrates)])
-            mp = 0 if mp >= len(self._videoInfo.bitrates) else mp
+            r = lastThroughput #throughput
+            mp = min([m for m,sm in enumerate(bitrates) if sm/p < max(r, SM)] + [len(bitrates)])
+            mp = 0 if mp >= len(bitrates) else mp
             if mp <= M:
                 mp = M
             elif mp > lastM:
@@ -168,12 +180,14 @@ class DummyPlayer(GroupMan.RpcPeer):
     def init(self):
         dur = self.videoHandler.getSegmentDur()
         self.setPlaybackTime = self.videoHandler.expectedPlaybackTime()
+        if self.startPlaybackTime == -1:
+            self.startPlaybackTime = self.setPlaybackTime
         print(self.setPlaybackTime, dur)
         self.nextSegId = int(self.setPlaybackTime/dur)
         self.startSegment = self.nextSegId
 
     def updateState(self, playbackTime, buffers):
-        self.playerBuffers = buffers
+        self.playerBuffers = buffers[:]
         self.playbackTime = playbackTime
         if self.grpMan is None:
             return
@@ -211,7 +225,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         fds = []
         l = 0
         vidQl = self.BOLA()
-        qualities = {"audio": 0, "video": 0} #need to add bola
+        qualities = {"audio": 0, "video": vidQl} #need to add bola
         if self.nextSegId == self.groupStartedFromSegId or self.iamStarter: #best place to hold it.
             cprint.cyan("releasing sem2")
             self.downloadFrmQSem.release()

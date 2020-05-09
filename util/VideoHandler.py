@@ -28,7 +28,7 @@ class VideoHandler:
         assert self.vidInfo['segmentDuration'] == self.audInfo['segmentDuration']
         return self.vidInfo['segmentDuration']
 
-    def getBitrates(Self, typ):
+    def getBitrates(self, typ):
         return self.infos[typ]['bitrates']
 
     def ended(self, segId):
@@ -42,7 +42,12 @@ class VideoHandler:
         self.downloadQualityInfo.setdefault(typ, []).append([num, ql, index])
 
     def getChunkDownloadDetails(self, typ):
-        return self.downloadQualityInfo.setdefault(typ, [])
+        return self.downloadQualityInfo.setdefault(typ, [])[:]
+
+    def getDownloadStat(self, dlid=-1):
+        if dlid < 0:
+            return self.downloadStat[:]
+        return self.downloadStat[dlid]
 
     def getTimeDrift(self):
         timeUrl = urljoin(self.mpdUrl, self.timeUrl)
