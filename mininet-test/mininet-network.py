@@ -52,8 +52,8 @@ def myNetwork():
 #     h5 = net.addHost('h5', cls=Host, ip='10.0.0.5', defaultRoute=None)
 
     info( '*** Add links\n')
-    h1s1 = {'bw': 3,'delay':'50ms'}
-    s1pl = {'bw': 10, 'delay': '10ms'}
+    h1s1 = {'bw': 6,'delay':'10ms'}
+    s1pl = {'bw': 10, 'delay': '5ms'}
     net.addLink(h1, s1, cls=TCLink, **h1s1)
     net.addLink(s1, h2, cls=TCLink, **s1pl)
     for hx in HN:
