@@ -132,10 +132,11 @@ class VideoHandler:
         clen = len(chunks[num])
         self.updateDownloadStat(start, end, clen, num, ql, typ)
 
-    def addChunk(self, ql, num, typ, data):
+    def addChunk(self, ql, num, typ, data, overwrite=False):
         num = int(num)
         chunks = self.chunks.setdefault(typ, {}).setdefault(ql, {})
-        assert num not in chunks
+        if not overwrite:
+            assert num not in chunks
         chunks[num] = data
 
 

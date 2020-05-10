@@ -254,7 +254,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             ql = self.groupGetVidQuality()
             if ql < 0:
                 if self.groupSegTry < 3:
-                    self.groupSegTry += 1
+#                     self.groupSegTry += 1
                     return [], [], 0
                 else:
                     cprint.magenta("Exhausted group try for seg:", self.nextSegId)
@@ -334,7 +334,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def groupLoadChunk(self, ql, num, typ):
         num = int(num)
         qls = self.videoHandler.getCachedQuality(num, typ)
-        assertLog(ql not in qls, f"ql={ql}", f"qls={qls}")
+#         assertLog(ql not in qls, f"ql={ql}", f"qls={qls}")
 
         self.broadcast(self.exposed_qualityDownloading, num, ql)
         url = self.videoHandler.getChunkUrl(ql, num, typ)
@@ -348,7 +348,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             self.videoHandler.updateChunkSizes(dt)
             self.broadcast(self.exposed_updateChunkSizes, dt)
         self.downloadFinishedAt = time.time()
-        self.videoHandler.addChunk(ql, num, typ, resData)
+        self.videoHandler.addChunk(ql, num, typ, resData, True) #hack, overwrite
         self.broadcast(self.exposed_downloaded, num, ql)
         self.videoHandler.updateDownloadStat(self.downloadStartedAt, self.downloadFinishedAt, len(resData), num, ql, typ)
 
