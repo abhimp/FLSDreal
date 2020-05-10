@@ -14,8 +14,10 @@ import threading
 import shlex
 import socket
 import signal
+import sys
 
 # from util import multiprocwrap as mp
+from util.misc import getTraceBack
 from util.VideoHandler import VideoHandler
 from util.DummyPlayer import DummyPlayer
 
@@ -180,14 +182,18 @@ def startWeb(port):
 #     return
 
 def informClose():
-    if options.finishedSocket is None:
+    if options.finSock is None:
         return
     try:
+        print("Connecting to", options.finSock)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
-        sock.connect(options.finishedSocket)
-        sock.write(b"done")
+        sock.connect(options.finSock)
+        sock.send(b"done")
         sock.close()
     except Exception:
+        exec_info = sys.exc_info()
+        print("Connection to", options.finSock, "failed")
+        print(getTraceBack(exec_info))
         pass
 
 def main():

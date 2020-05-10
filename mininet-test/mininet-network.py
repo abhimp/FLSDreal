@@ -109,13 +109,17 @@ def myNetwork():
     net.stop()
 
 def waitForSocket():
+    print("Waiting for socket at", options.finSock)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
     sock.bind(options.finSock)
     sock.listen(1)
+    os.chmod(options.finSock, 0o777)
     con, addr = sock.accept()
     con.recv(2)
     con.close()
     sock.close()
+
+    print("Success at", options.finSock)
     os.remove(options.finSock)
 
 def parseCmdArgument():
