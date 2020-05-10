@@ -10,6 +10,7 @@ import socket
 import random
 import numpy as np
 
+# from . import multiprocwrap as mp
 from . import groupRpyc as GroupMan
 from . import cprint
 from . import nestedObject
@@ -30,6 +31,11 @@ class Socket:
 
     def __getattr__(self, name):
         return getattr(self.sock, name)
+
+def assertLog(cond, *k):
+    if not cond:
+        cprint.red("Assert failed:", *k)
+    assert cond
 
 class AutoUpdateObject():
     def __init__(self, callback):
@@ -94,6 +100,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.status = None
         self.videoQualities = list(range(len(self.videoHandler.vidInfo["bitrates"])))
 
+        self.groupLockReleased = False
         self.groupStarted = False
         self.connectedToNeighbour = False
         self.grpMan = None
@@ -164,17 +171,17 @@ class DummyPlayer(GroupMan.RpcPeer):
         M = int(M)
         if M < lastM:
             r = lastThroughput #throughput
-            mp = min([m for m,sm in enumerate(bitrates) if sm/p < max(r, SM)] + [len(bitrates)])
-            mp = 0 if mp >= len(bitrates) else mp
-            if mp <= M:
-                mp = M
-            elif mp > lastM:
-                mp = lastM
+            mprime = min([m for m,sm in enumerate(bitrates) if sm/p < max(r, SM)] + [len(bitrates)])
+            mprime = 0 if mprime >= len(bitrates) else mprime
+            if mprime <= M:
+                mprime = M
+            elif mprime > lastM:
+                mprime = lastM
             elif False: #some special parameter TODO
                 pass
             else:
-                mp = mp - 1
-            M = mp
+                mprime = mprime - 1
+            M = mprime
         sleepTime = max(p * (Q - QDmax + 1), 0)
         return M
 
@@ -201,6 +208,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def getChunkSize(self, ql, num, mt):
         if mt == "audio":
             return self.videoHandler.getChunkSize(0, num, mt) #forcing ql to 0
+        cprint.red("Assert failed")
         assert False
 
     def getChunkFileDescriptor(self, ql, segId, mt):
@@ -208,16 +216,17 @@ class DummyPlayer(GroupMan.RpcPeer):
         if mt == "audio" or (ql, segId) not in self.getChunkFromGroup:
             return self.videoHandler.getChunkFileDescriptor(ql, segId, mt)
 
-        assert mt == "video"
-        assert self.groupInfo is not None
+        assertLog(mt == "video", f"mt={mt}")
+        assertLog(self.groupInfo is not None, f"self.groupInfo={self.groupInfo}")
 
         qls = self.groupInfo.chunkInfo.setdefault(segId, [])
         pgid = [q[0] for q in qls if q[1] == ql][0]
-        assert pgid != self.gid
+        assertLog(pgid != self.gid, f"pgid={pgid} self.gid={self.gid}")
         rpeer = self.neighbours[pgid]
         con = rpeer.getChunk(mt, ql, segId)
         ret = con.recv(1)
-        assert ret[0] == 1
+        assertLog(len(ret) >= 1, f"len(ret)={len(ret)}")
+        assertLog(ret[0] == 1, f"ret[0]={ret[0]}")
         return Socket(con)
 
     # Entry point from the player. return segment if available other wise return null
@@ -228,17 +237,21 @@ class DummyPlayer(GroupMan.RpcPeer):
         l = 0
         vidQl = self.BOLA()
         qualities = {"audio": 0, "video": vidQl} #need to add bola
+#         if (self.nextSegId >= self.groupStartedFromSegId and self.groupReady and not self.groupLockReleased) or self.iamStarter: #best place to hold it.
         if self.nextSegId == self.groupStartedFromSegId or self.iamStarter: #best place to hold it.
             cprint.cyan("releasing sem2")
             self.downloadFrmQSem.release()
             cprint.magenta("releasing sem1")
             self.teamplayerStartSem.release()
+            self.groupLockReleased = True
+
         if self.iamStarter or (self. groupReady and self.nextSegId >= self.groupStartedFromSegId):
             ql = self.groupGetVidQuality()
             if ql < 0:
                 return [], [], 0
             qualities["video"] = ql
         if self.videoHandler.ended(self.nextSegId):
+            cprint.green("Sending eof")
             return [{"eof" : True}], [], 0
         for mt in ["audio", "video"]:
             ql = qualities[mt]
@@ -291,7 +304,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         return -1
 
     def groupStartGrpThreads(self, segId):
-        assert not self.groupReady
+        assertLog(not self.groupReady, f"self.groupReady={self.groupReady}")
         self.groupInitInfo()
         self.groupStartedFromSegId = segId
         cprint.orange("groupstarting from", segId)
@@ -303,7 +316,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def groupLoadChunk(self, ql, num, typ):
         num = int(num)
         qls = self.videoHandler.getCachedQuality(num, typ)
-        assert ql not in qls
+        assertLog(ql not in qls, f"ql={ql}", f"qls={qls}")
 
         self.broadcast(self.exposed_qualityDownloading, num, ql)
         url = self.videoHandler.getChunkUrl(ql, num, typ)
@@ -339,7 +352,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             try:
                 if segId + 1 in self.groupInfo.segQuality and futureQl is None:
                     futureQl = max([q for gid, q in self.groupInfo.segQuality[segId + 1].items()])
-                    assert futureQl >= 0
+                    assertLog(futureQl >= 0, f"futureQl={futureQl}")
                 if segId - 1 in self.groupInfo.segQuality:
                     pql = max([q for gid, q in self.groupInfo.segQuality[segId - 1].items()])
                     if pastQl is None: pastQl = pql
@@ -364,7 +377,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
         thrpt = min(hthrpt, last5Thrpt[-1], self.videoHandler.weightedThroughput/8) #BYTE/SEC
 
-        cprint.green("lalast5Thrpt", last5Thrpt, "hthrpt", hthrpt)
+#         cprint.green("lalast5Thrpt", last5Thrpt, "hthrpt", hthrpt)
 
         if deadLine <= 0:
             return 0 #lowest quality as there is no time
@@ -404,7 +417,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         res = idleTimes - qlen
         downloader = np.argmax(res)
         downloader = peers[downloader]
-        cprint.orange(res)
+#         cprint.orange(res)
         return downloader.gid
 
     def groupDownloadAsTeamplayer(self):
@@ -415,7 +428,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 #             self.groupInfo.downloader.update(gdownloader)
         cprint.magenta("wait for sem1")
         self.teamplayerStartSem.acquire()
-        cprint.magenta("sem released")
+        cprint.magenta("sem1 released")
         while True:
             action = self.teamplayerQueue.get()
             cprint.magenta("recvd action", action)
@@ -431,13 +444,13 @@ class DummyPlayer(GroupMan.RpcPeer):
     def groupDownloadFromDownloadQueue(self):
         cprint.cyan("wait for sem2")
         self.downloadFrmQSem.acquire()
-        cprint.cyan("sem released")
+        cprint.cyan("sem2 released")
         while True:
             segId, ql = self.downloadQueue.get()
             self.status.dlQLen -= 1
             if ql == "*": #i.e. run quality selection
                 ql = self.groupSelectNextQuality(segId)
-                assert ql is not None
+                assertLog(ql is not None, f"ql={ql}")
             self.groupLoadChunk(ql, segId, "video")
 
     def groupPrepareStatusObj(self, node, cb=None):
@@ -451,7 +464,8 @@ class DummyPlayer(GroupMan.RpcPeer):
         fd = self.videoHandler.getChunkFileDescriptor(ql, segId, mt)
         con.send(chr(1).encode())
         sent = con.sendfile(fd)
-        assert sent ==  self.videoHandler.getChunkSize(ql, segId, mt)
+        sRet = self.videoHandler.getChunkSize(ql, segId, mt)
+        assertLog(sent == sRet, f"sent={sent}, sRet={sRet}")
 
     def groupSendChunkThroughSocket(self, con, mt, ql, segId):
         qls = self.videoHandler.getCachedQuality(segId, mt)
@@ -508,7 +522,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def addPeerCallBack(self, sem, rpeer, pid, rid, err):
         if rid != pid: cprint.orange("Not matching", rid, pid)
-        assert rid == pid
+        assertLog(rid == pid, f"rid={rid} pid={pid}")
         rpeer.gid = pid
         self.addNeighbour(rpeer)
         rpeer.status.setReadOnly(True)
@@ -517,7 +531,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
 
     def broadcast(self, func, *args, **kwargs):
-        assert self.groupReady
+        assertLog(self.groupReady, f"self.groupReady={self.groupReady}")
         fname = func.__name__
         for x, peer in self.getNeighbours():
             fn = getattr(peer, fname)
@@ -613,8 +627,12 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def exposed_setNextDownloader(self, rpeer, segId, gid):
         if not self.groupReady:
-            assert not self.iamStarter
-            self.groupStartGrpThreads(segId) #if i am not starter
+            assertLog(not self.iamStarter, f"self.iamStarter={self.iamStarter}")
+            assertLog(self.gid != gid, f"self.gid={self.gid} gid={gid}")
+            gSegId = segId
+            if gSegId <= self.nextSegId:
+                gSegId = self.nextSegId + 1
+            self.groupStartGrpThreads(gSegId) #if i am not starter, TODO think about it. I am the next downloader
         self.groupInfo.downloader.setdefault(segId, []).append(gid)
         if self.gid == gid:
             self.teamplayerQueue.put((segId,))

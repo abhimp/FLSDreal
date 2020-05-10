@@ -11,8 +11,11 @@ from mininet.link import TCLink, Intf
 from subprocess import call
 from mininet.term import runX11, makeTerm
 
+import argparse
+import socket
 import time
 import os
+import tempfile
 
 def runX11WithHost(host, cmd, **kwargs):
     os.environ["MININET_HOST"] = str(host)
@@ -64,25 +67,38 @@ def myNetwork():
 
     info( '*** Post configure switches and hosts\n')
 
-    xterm = "xterm -fa 'Monospace' -fs 12 -bg #460001 "
+    xterm = "xterm -fa 'Monospace' -fs 12 -bg #460001 -fg #ffffff "
 
-    cmd = xterm + "-T '" + h1.name + f"' {WD}/server.sh "
+    print("Running server")
+    cmd = xterm + "-T '" + h1.name + "'"
+    cmd += f" {WD}/server.sh "
     sterm = runX11WithHost(h1, cmd)
 
     time.sleep(3)
 
-    cmd = xterm + "-T '" + h2.name + f"' {WD}/client-0.sh "
+    print("Running client 1")
+    cmd = xterm + "-T '" + h2.name + "'"
+    cmd += f" {WD}/client-0.sh "
     cterm = runX11WithHost(h2, cmd)
 
     time.sleep(24)
-    cmd = xterm + "-T '" + h3.name + f"' {WD}/client-1.sh "
+
+    print("Running client 2")
+    cmd = xterm + "-T '" + h3.name + "'"
+    cmd += f" {WD}/client-1.sh "
     cterm2 = runX11WithHost(h3, cmd)
 
-    time.sleep(5)
-    cmd = xterm + "-T '" + h4.name + f"' {WD}/client-1.sh "
+    time.sleep(10)
+
+    print("Running client 3")
+    cmd = xterm + "-T '" + h4.name + "'"
+    cmd += f" {WD}/client-1.sh "
     cterm3 = runX11WithHost(h4, cmd)
 
     time.sleep(120)
+    print("waiting for socket")
+    waitForSocket()
+    time.sleep(1)
 
     cterm[1].terminate()
     cterm2[1].terminate()
@@ -92,7 +108,36 @@ def myNetwork():
     #CLI(net)
     net.stop()
 
+def waitForSocket():
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
+    sock.bind(options.finSock)
+    sock.listen(1)
+    con, addr = sock.accept()
+    con.recv(2)
+    con.close()
+    sock.close()
+    os.remove(options.finSock)
+
+def parseCmdArgument():
+    global options
+    parser = argparse.ArgumentParser(description = "FLSD mininet options")
+
+    tfile = tempfile.mktemp()
+
+    parser.add_argument('-L', '--logDir', dest='logDir', default=None, type=str)
+    parser.add_argument('-F', '--finishedSocket', dest='finSock', default=tfile, type=str)
+
+    options = parser.parse_args()
+    envStr = ""
+    if options.logDir is not None:
+        envStr += " -L " + options.logDir
+    if options.finSock is not None:
+        envStr += " -F " + options.finSock
+
+    os.putenv("WEBVIEWTEST_PARAM", envStr)
+
 if __name__ == '__main__':
+    parseCmdArgument()
     setLogLevel( 'info' )
     myNetwork()
 

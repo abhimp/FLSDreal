@@ -53,8 +53,6 @@ function initiate(headerInfo){
     })
 }
 
-
-
 function initVideoPlayer(callback) {
     if ('MediaSource' in window) {
         msrc = new MediaSource;
@@ -83,6 +81,12 @@ function applyAction(body, info) {
         if (typeof seg["eof"] !== "undefined" && seg["eof"] == true) {
             showEnded = true
             msrc.endOfStream()
+            var pTime = videoElement.currentTime
+            var buf = videoElement.buffered
+            var bufUpto = buf.end(buf.length - 1)
+            sleepTime = pTime < bufUpto ? bufUpto - pTime : 0
+            console.log("Sleeping for " + sleepTime)
+            setTimeout(finishedPlayback, sleepTime*1000)
             return
         }
 
@@ -147,7 +151,6 @@ function getAction(){
     xhr.send()
 }
 
-
 function setDomElement() {
     document.body.innerHTML = ""
     videoElement = document.createElement("video")
@@ -160,7 +163,6 @@ function setDomElement() {
 function setVideoEventHandler(videoElement) {
     videoElement.onwaiting  = function(){waitingForFrame(); console.log("onwaiting")}
     videoElement.onplaying  = function(){startPlaying(); console.log("onplaying")}
-    videoElement.onended    = function(){finishedPlayback(); console.log("onended")}
 }
 
 function getCurStall() {
@@ -172,8 +174,22 @@ function getCurStall() {
 function finishedPlayback() {
     if(showEnded) {
         console.log("showEnded")
-        // eofReached = false;
-        // getNextAction()
+        //inform controler to close the browser and the code
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", "playbackEnded", true)
+        try{
+            xhr.responseType = 'text';
+        }catch(err){}
+
+        xhr.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+                console.log("Done")
+            }
+        }
+        xhr.send()
+    }
+    else{
+        console.log("playback ended with error")
     }
 }
 
