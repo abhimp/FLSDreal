@@ -257,7 +257,7 @@ class DummyPlayer(GroupMan.RpcPeer):
                     self.groupSegTry += 1
                     return [], [], 0
                 else:
-                    cprint.magenta("Exhausted group try")
+                    cprint.magenta("Exhausted group try for seg:", self.nextSegId)
                     ql = 0
             self.groupSegTry = 0
             qualities["video"] = ql
