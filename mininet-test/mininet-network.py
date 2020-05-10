@@ -75,6 +75,16 @@ def myNetwork():
 
     xterm = "xterm -fa 'Monospace' -fs 12 -bg #460001 -fg #ffffff "
 
+    dpop = None
+    if options.logDir is not None:
+        print("Running pcap")
+        cmd = xterm + "-T '" + h1.name + "'"
+#         cmd += f" dumpcap -i {h1.intf()} -w /tmp/fuck"
+        cmd += f" {WD}/dumpcap.sh"# {h1.intf()} " + os.path.join(options.logDir, "trace.pcap")
+        print(cmd)
+        dpop = runX11WithHost(h1, cmd, MININET_IFC=f"{h1.intf()}", MININET_TRACE_FILE=os.path.join(options.logDir, "trace.pcap"))
+        time.sleep(2)
+
     print("Running server")
     cmd = xterm + "-T '" + h1.name + "'"
     cmd += f" {WD}/server.sh "
@@ -115,6 +125,8 @@ def myNetwork():
     for oterm in nterms:
         oterm[1].terminate()
     sterm[1].terminate()
+    if dpop is not None:
+        dpop[1].terminate()
 
     #CLI(net)
     net.stop()
@@ -155,6 +167,11 @@ def parseCmdArgument():
     parser.add_argument('-F', '--finishedSocket', dest='finSock', default=tfile, type=str)
 
     options = parser.parse_args()
+
+    if not os.path.isdir(options.logDir):
+        os.makedirs(options.logDir)
+        os.chmod(options.logDir, 0o777)
+
 
     os.putenv("MPD_SERVER_VIDEO_PATH", options.mpdPath)
 

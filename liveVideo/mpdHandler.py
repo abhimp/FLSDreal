@@ -41,7 +41,7 @@ class VideoPlayerVoD:
         self.numSegs = -1
 
         self.autoStart = options.autoStart
-        self.origStartTime = int(time.mktime(time.gmtime())/(60))*(60)# - 500 #debug
+        self.origStartTime = int(time.mktime(time.gmtime())/(60))*(60) - 500 #debug
         self.readFileSizes()
 
     @property
