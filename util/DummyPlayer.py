@@ -243,7 +243,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         vidQl = self.BOLA()
         qualities = {"audio": 0, "video": vidQl} #need to add bola
 #         if (self.nextSegId >= self.groupStartedFromSegId and self.groupReady and not self.groupLockReleased) or self.iamStarter: #best place to hold it.
-        if self.nextSegId == self.groupStartedFromSegId or self.iamStarter: #best place to hold it.
+        if (self.nextSegId == self.groupStartedFromSegId or self.iamStarter) and not self.groupLockReleased: #best place to hold it.
             cprint.cyan("releasing sem2")
             self.downloadFrmQSem.release()
             cprint.magenta("releasing sem1")
@@ -648,8 +648,8 @@ class DummyPlayer(GroupMan.RpcPeer):
             assertLog(not self.iamStarter, f"self.iamStarter={self.iamStarter}")
             assertLog(self.gid != gid, f"self.gid={self.gid} gid={gid}")
             gSegId = segId
-#             if gSegId <= self.nextSegId:
-#                 gSegId = self.nextSegId + 1
+            if gSegId <= self.nextSegId:
+                gSegId = self.nextSegId + 1
             self.groupStartGrpThreads(gSegId) #if i am not starter, TODO think about it. I am the next downloader
         self.groupInfo.downloader.setdefault(segId, []).append(gid)
         if self.gid == gid:
