@@ -43,8 +43,8 @@ class VideoPlayerVoD:
         self.autoStart = options.autoStart
         self.origStartTime = int(time.mktime(time.gmtime())) - 4# - 500 #debug
         #===============
-        playedTime = self.mpd.getOrigPlaybackDuration() - 120
-        self.origStartTime -= playedTime
+#         playedTime = self.mpd.getOrigPlaybackDuration() - 120
+#         self.origStartTime -= playedTime
         #===============
         self.readFileSizes()
 
