@@ -119,6 +119,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.loadingChunk = False
         self.teamplayerStartSem = threading.Semaphore(0)
         self.downloadFrmQSem = threading.Semaphore(0)
+        self.groupSegTry = 0
 
         self.groupInfo = None
         self.getChunkFromGroup = {}
@@ -252,7 +253,13 @@ class DummyPlayer(GroupMan.RpcPeer):
         if self.iamStarter or (self. groupReady and self.nextSegId >= self.groupStartedFromSegId):
             ql = self.groupGetVidQuality()
             if ql < 0:
-                return [], [], 0
+                if self.groupSegTry < 3:
+                    self.groupSegTry += 1
+                    return [], [], 0
+                else:
+                    cprint.magenta("Exhausted group try")
+                    ql = 0
+            self.groupSegTry = 0
             qualities["video"] = ql
         if self.videoHandler.ended(self.nextSegId):
             cprint.green("Sending eof")
