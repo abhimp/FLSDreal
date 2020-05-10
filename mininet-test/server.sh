@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-python3.7 ${MININET_WD}/../liveVideo/proxyServer.py /home/exp/dashed/bbb/media/vid.mpd
+python3.7 ${MININET_WD}/../liveVideo/proxyServer.py $MPD_SERVER_VIDEO_PATH

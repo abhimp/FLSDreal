@@ -79,6 +79,7 @@ def myNetwork():
     print("Running client 1")
     cmd = xterm + "-T '" + h2.name + "'"
     cmd += f" {WD}/client-0.sh "
+    setParamFromHost(h2)
     cterm = runX11WithHost(h2, cmd)
 
     time.sleep(24)
@@ -86,6 +87,7 @@ def myNetwork():
     print("Running client 2")
     cmd = xterm + "-T '" + h3.name + "'"
     cmd += f" {WD}/client-1.sh "
+    setParamFromHost(h3)
     cterm2 = runX11WithHost(h3, cmd)
 
     time.sleep(10)
@@ -93,9 +95,10 @@ def myNetwork():
     print("Running client 3")
     cmd = xterm + "-T '" + h4.name + "'"
     cmd += f" {WD}/client-1.sh "
+    setParamFromHost(h4)
     cterm3 = runX11WithHost(h4, cmd)
 
-    time.sleep(120)
+#     time.sleep(120)
     print("waiting for socket")
     waitForSocket()
     time.sleep(1)
@@ -107,6 +110,15 @@ def myNetwork():
 
     #CLI(net)
     net.stop()
+
+def setParamFromHost(node):
+    envStr = ""
+    if options.logDir is not None:
+        envStr += " -L " + os.path.join(options.logDir, node.name)
+    if options.finSock is not None:
+        envStr += " -F " + options.finSock
+
+    os.putenv("WEBVIEWTEST_PARAM", envStr)
 
 def waitForSocket():
     print("Waiting for socket at", options.finSock)
@@ -128,17 +140,14 @@ def parseCmdArgument():
 
     tfile = tempfile.mktemp()
 
+    parser.add_argument('-m', '--mpd-path', dest="mpdPath", default=os.environ['HOME'] + 'dashed/bbb/media/vid.mpd', type=str)
     parser.add_argument('-L', '--logDir', dest='logDir', default=None, type=str)
     parser.add_argument('-F', '--finishedSocket', dest='finSock', default=tfile, type=str)
 
     options = parser.parse_args()
-    envStr = ""
-    if options.logDir is not None:
-        envStr += " -L " + options.logDir
-    if options.finSock is not None:
-        envStr += " -F " + options.finSock
 
-    os.putenv("WEBVIEWTEST_PARAM", envStr)
+    os.putenv("MPD_SERVER_VIDEO_PATH", options.mpdPath)
+
 
 if __name__ == '__main__':
     parseCmdArgument()

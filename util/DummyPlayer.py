@@ -8,6 +8,7 @@ import json
 import multiprocessing as mp
 import socket
 import random
+import os
 import numpy as np
 
 # from . import multiprocwrap as mp
@@ -99,6 +100,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.options = options
         self.status = None
         self.videoQualities = list(range(len(self.videoHandler.vidInfo["bitrates"])))
+        self.qoeLogFd = None
 
         self.groupLockReleased = False
         self.groupStarted = False
@@ -193,6 +195,10 @@ class DummyPlayer(GroupMan.RpcPeer):
         print(self.setPlaybackTime, dur)
         self.nextSegId = int(self.setPlaybackTime/dur)
         self.startSegment = self.nextSegId
+        if self.options.logDir is not None:
+            if not os.path.isdir(self.options.logDir):
+                os.makedirs(self.options.logDir)
+            self.qoeLogFd = open(os.path.join(self.options.logDir, "QoE.log"), "w")
 
     def updateState(self, playbackTime, buffers, totalStalled):
         self.playerBuffers = buffers[:]
@@ -252,7 +258,14 @@ class DummyPlayer(GroupMan.RpcPeer):
             qualities["video"] = ql
         if self.videoHandler.ended(self.nextSegId):
             cprint.green("Sending eof")
+            if self.qoeLogFd is not None:
+                self.qoeLogFd.close()
+                self.qoeLogFd = None
             return [{"eof" : True}], [], 0
+        if self.qoeLogFd is not None:
+            ql = qualities['video']
+            bitrate = self.videoHandler.getBitrates('video')[ql]
+            print(self.playbackTime, self.totalStalled, ql, bitrate, self.nextSegId, file=self.qoeLogFd)
         for mt in ["audio", "video"]:
             ql = qualities[mt]
             seg = {}
