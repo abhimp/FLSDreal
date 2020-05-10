@@ -13,7 +13,7 @@ class FileWrapper:
 
     def __getattr__(self, name):
         try:
-            return fd.__getattr__(name)
+            return self.fd.__getattr__(name)
         except AttributeError as err:
             if name == "length":
                 return self._length
@@ -29,7 +29,7 @@ class ByteIoProxy(io.BytesIO):
         return l
 
 class VideoPlayerVoD:
-    def __init__(self, url):
+    def __init__(self, url, options):
         if not os.path.exists(url):
             raise OSError("File does not exists!!")
         self.url = url
@@ -39,7 +39,9 @@ class VideoPlayerVoD:
         self.initSizes = {}
         self.repId2MtQl = {}
         self.numSegs = -1
-#         print(self.mpd.bitrates)
+
+        self.autoStart = options.autoStart
+        self.origStartTime = int(time.mktime(time.gmtime())/(60))*(60)# - 500 #debug
         self.readFileSizes()
 
     @property
@@ -96,9 +98,12 @@ class VideoPlayerVoD:
         return self.mpd.getXML()
 
     def getJson(self):
+        startTimeInt = int(time.mktime(time.gmtime())/(10*60))*(10*60)
+        if not self.autoStart:
+            startTimeInt = self.origStartTime
         pop = {
-                "startTime": int(time.mktime(time.gmtime())/(10*60))*(10*60),
-                "startTimeReadable": time.ctime(int(time.mktime(time.gmtime())/(10*60))*(10*60)),
+                "startTime": startTimeInt,
+                "startTimeReadable": time.ctime(startTimeInt),
                 "currentTimeReadable": time.ctime(int(time.mktime(time.gmtime()))),
                 "timeUrl" : "/media/time",
                 "vidInfo" : self.getVideoObj().toDict(),
@@ -116,7 +121,7 @@ class VideoPlayerVoD:
             mt, ql = self.repId2MtQl[r]
             size = 0
             if segId == "init":
-                size = self.initSizes[mt][q]
+                size = self.initSizes[mt][ql]
             else:
                 try:
                     num = segId
@@ -215,7 +220,7 @@ class VideoPlayerOld:
             url = chk
             fd = urllib.urlopen(url)
             mime = fd.headers.get_content_type()
-            return fd, mine
+            return fd, mime
         except:
             try:
                 fd = open(chk, "rb")

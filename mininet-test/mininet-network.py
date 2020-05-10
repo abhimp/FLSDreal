@@ -43,18 +43,24 @@ def myNetwork():
     info( '*** Add hosts\n')
     h1 = net.addHost('h1', cls=Host, ip='10.0.0.1', defaultRoute=None)
     h2 = net.addHost('h2', cls=Host, ip='10.0.0.2', defaultRoute=None)
-    h3 = net.addHost('h3', cls=Host, ip='10.0.0.3', defaultRoute=None)
-    h4 = net.addHost('h4', cls=Host, ip='10.0.0.4', defaultRoute=None)
-    h5 = net.addHost('h5', cls=Host, ip='10.0.0.5', defaultRoute=None)
+    HN = []
+    for n in range(options.neighbor):
+        hx = net.addHost(f"h{n+3}", cls=Host, ip=f"10.0.0.{n+3}", defaultRoute=None)
+        HN += [hx]
+#     h3 = net.addHost('h3', cls=Host, ip='10.0.0.3', defaultRoute=None)
+#     h4 = net.addHost('h4', cls=Host, ip='10.0.0.4', defaultRoute=None)
+#     h5 = net.addHost('h5', cls=Host, ip='10.0.0.5', defaultRoute=None)
 
     info( '*** Add links\n')
     h1s1 = {'bw':5,'delay':'50ms'}
     s1pl = {'bw': 10, 'delay': '10ms'}
     net.addLink(h1, s1, cls=TCLink, **h1s1)
     net.addLink(s1, h2, cls=TCLink, **s1pl)
-    net.addLink(s1, h3, cls=TCLink, **s1pl)
-    net.addLink(s1, h4, cls=TCLink, **s1pl)
-    net.addLink(s1, h5, cls=TCLink, **s1pl)
+    for hx in HN:
+        net.addLink(s1, hx, cls=TCLink, **s1pl)
+#     net.addLink(s1, h3, cls=TCLink, **s1pl)
+#     net.addLink(s1, h4, cls=TCLink, **s1pl)
+#     net.addLink(s1, h5, cls=TCLink, **s1pl)
 
     info( '*** Starting network\n')
     net.build()
@@ -84,19 +90,21 @@ def myNetwork():
 
     time.sleep(24)
 
-    print("Running client 2")
-    cmd = xterm + "-T '" + h3.name + "'"
-    cmd += f" {WD}/client-1.sh "
-    setParamFromHost(h3)
-    cterm2 = runX11WithHost(h3, cmd)
+    nterms = []
+    for i in range(options.neighbor):
+        print(f"Running client {2+i}")
+        hx = HN[i]
+        cmd = xterm + "-T '" + hx.name + "'"
+        if options.standAlone:
+            cmd += f" {WD}/client-0.sh "
+        else:
+            cmd += f" {WD}/client-1.sh "
+        setParamFromHost(hx)
+        oterm = runX11WithHost(hx, cmd)
+        nterms += [oterm]
 
-    time.sleep(10)
+        time.sleep(10)
 
-    print("Running client 3")
-    cmd = xterm + "-T '" + h4.name + "'"
-    cmd += f" {WD}/client-1.sh "
-    setParamFromHost(h4)
-    cterm3 = runX11WithHost(h4, cmd)
 
 #     time.sleep(120)
     print("waiting for socket")
@@ -104,8 +112,8 @@ def myNetwork():
     time.sleep(1)
 
     cterm[1].terminate()
-    cterm2[1].terminate()
-    cterm3[1].terminate()
+    for oterm in nterms:
+        oterm[1].terminate()
     sterm[1].terminate()
 
     #CLI(net)
@@ -140,7 +148,9 @@ def parseCmdArgument():
 
     tfile = tempfile.mktemp()
 
-    parser.add_argument('-m', '--mpd-path', dest="mpdPath", default=os.environ['HOME'] + 'dashed/bbb/media/vid.mpd', type=str)
+    parser.add_argument('-n', '--neighbor', dest='neighbor', type=int, default=3)
+    parser.add_argument('-a', '--stand-alone', dest='standAlone', action='store_true')
+    parser.add_argument('-m', '--mpd-path', dest='mpdPath', default=os.environ['HOME'] + 'dashed/bbb/media/vid.mpd', type=str)
     parser.add_argument('-L', '--logDir', dest='logDir', default=None, type=str)
     parser.add_argument('-F', '--finishedSocket', dest='finSock', default=tfile, type=str)
 

@@ -8,6 +8,7 @@ import io
 import os, sys
 import re
 import time
+import argparse
 
 import simulatelivempd as mpdparser
 from mpdHandler import VideoPlayer
@@ -161,18 +162,27 @@ class ByteIoProxy(io.BytesIO):
         self.seek(cur, 0)
         return l
 
+def parseCmdArgument():
+    global options
+    MPD_PATH = "/home/abhijit/Downloads/dashed/bbb/media/pens.mpd"
+    parser = argparse.ArgumentParser(description = "FLSD test")
+
+    parser.add_argument(dest="mpdPath", type=str)
+    parser.add_argument('-p', '--port', dest='port', default=9876, type=int)
+    parser.add_argument('-a', '--auto-start', dest='autoStart', action='store_false')
+
+    options = parser.parse_args()
+
+
 if __name__ == "__main__":
-    url = "http://10.5.20.129:9876/dash/0b4SVyP0IqI/media/vid.mpd"
-    port = 9876
-    if len(sys.argv) >= 2:
-        url = sys.argv[1]
-    if len(sys.argv) >= 3:
-        port = int(sys.argv[2])
+    parseCmdArgument()
     if "http_proxy" in os.environ:
         del os.environ["http_proxy"]
-    videoPlayer = VideoPlayer(url)
-    # videoPlayer = VideoPlayer("http://127.0.0.1:8000/vid.mpd")
-    # videoPlayer = VideoPlayer("http://127.0.0.1:8000/dst/media/vid.mpd")
+
+    url = options.mpdPath
+    port = options.port
+
+    videoPlayer = VideoPlayer(url, options)
     with MyHttpServer(videoPlayer, ("", port), MyHttpHandler) as httpd:
         print("serving at port", port)
         httpd.serve_forever()
