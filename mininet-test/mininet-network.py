@@ -88,6 +88,7 @@ def myNetwork():
     print("Running server")
     cmd = xterm + "-T '" + h1.name + "'"
     cmd += f" {WD}/server.sh "
+    setParamFromHost(h1)
     sterm = runX11WithHost(h1, cmd)
 
     time.sleep(3)
@@ -135,6 +136,7 @@ def setParamFromHost(node):
     envStr = ""
     if options.logDir is not None:
         envStr += " -L " + os.path.join(options.logDir, node.name)
+
     if options.finSock is not None:
         envStr += " -F " + options.finSock
 

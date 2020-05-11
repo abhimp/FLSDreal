@@ -50,6 +50,8 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
         for x,y in self.extraHeaders.items():
             self.send_header(x, y)
         self.end_headers()
+        if self.server.logFile is not None:
+            print(self.path, contentlen, file=self.server.logFile, flush=True)
 
     def sendErr(self, path, msg=b"NOT FOUND", code=404):
         self.send_response(code)
@@ -151,6 +153,9 @@ class MyHttpServer(socketserver.ForkingMixIn, httpserver.HTTPServer):
     def __init__(self, spclArg, *arg, **kwarg):
         self.spclArg = spclArg
         self.pathre = re.compile('//+')
+        self.logFile = None
+        if options.logDir is not None:
+            self.logFile = open(os.path.join(options.logDir, "httpd_log"), "w")
         super().__init__(*arg, **kwarg)
 
 class ByteIoProxy(io.BytesIO):
@@ -170,8 +175,13 @@ def parseCmdArgument():
     parser.add_argument(dest="mpdPath", type=str)
     parser.add_argument('-p', '--port', dest='port', default=9876, type=int)
     parser.add_argument('-a', '--auto-start', dest='autoStart', action='store_false')
+    parser.add_argument('-L', '--logDir', dest='logDir', default=None, type=str)
+    parser.add_argument('-F', '--finishedSocket', dest='finSock', default=None, type=str)
 
     options = parser.parse_args()
+
+    if options.logDir is not None and not os.path.isdir(options.logDir):
+        os.makedirs(options.logDir)
 
 
 if __name__ == "__main__":

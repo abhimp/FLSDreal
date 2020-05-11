@@ -196,8 +196,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.nextSegId = int(self.setPlaybackTime/dur)
         self.startSegment = self.nextSegId
         if self.options.logDir is not None:
-            if not os.path.isdir(self.options.logDir):
-                os.makedirs(self.options.logDir)
             self.qoeLogFd = open(os.path.join(self.options.logDir, "QoE.log"), "w")
 
     def updateState(self, playbackTime, buffers, totalStalled):
@@ -265,7 +263,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         if self.qoeLogFd is not None:
             ql = qualities['video']
             bitrate = self.videoHandler.getBitrates('video')[ql]
-            print(self.playbackTime, self.totalStalled, ql, bitrate, self.nextSegId, file=self.qoeLogFd)
+            print(self.playbackTime, self.totalStalled, ql, bitrate, self.nextSegId, file=self.qoeLogFd, flush=True)
         for mt in ["audio", "video"]:
             ql = qualities[mt]
             seg = {}

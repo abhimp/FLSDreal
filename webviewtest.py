@@ -143,6 +143,9 @@ def parseCmdArgument():
 
     options = parser.parse_args()
 
+    if options.logDir is not None and not os.path.isdir(options.logDir):
+        os.makedirs(options.logDir)
+
 
 def startWebThroughCommand(url):
     cmdLine = options.browserCommand

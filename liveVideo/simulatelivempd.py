@@ -336,6 +336,9 @@ class MPDObject():
     def getPlaybackDuration(self):
         return self.duration
 
+    def getOrigPlaybackDuration(self):
+        return isodate.parse_duration(self.oldmpd.media_presentation_duration).total_seconds()
+
     def getVideoInfo(self):
         mcs = self.adpSets["video"].getMimesNCodecs()
         return AVInfo(self.segmentDuration, *mcs, duration = self.duration)
