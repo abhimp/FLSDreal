@@ -65,9 +65,9 @@ class TraceProcess:
 
 
     def runIntfCmd(self, intf, cmd):
-        print(cmd)
+#         print(cmd)
         res = intf.cmd(cmd)
-        print(res)
+#         print(res)
         return res
 
     def startTrace(self):
