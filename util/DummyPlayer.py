@@ -331,14 +331,14 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupDownloaderThread = threading.Thread(target=self.groupDownloadAsTeamplayer); self.groupDownloaderThread.start()
         self.groupActionThread = threading.Thread(target=self.groupDownloadFromDownloadQueue); self.groupActionThread.start()
 
-    def groupLoadChunk(self, ql, num, typ):
-        num = int(num)
-        qls = self.videoHandler.getCachedQuality(num, typ)
+    def groupLoadChunk(self, ql, segId, typ):
+        segId = int(segId)
+        qls = self.videoHandler.getCachedQuality(segId, typ)
 #         assertLog(ql not in qls, f"ql={ql}", f"qls={qls}")
 
-        self.broadcast(self.exposed_qualityDownloading, num, ql)
-        url = self.videoHandler.getChunkUrl(ql, num, typ)
-        print(url, num)
+        self.broadcast(self.exposed_qualityDownloading, segId, ql)
+        url = self.videoHandler.getChunkUrl(ql, segId, typ)
+        print(url, segId)
         self.downloadStartedAt = time.time()
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
@@ -348,9 +348,9 @@ class DummyPlayer(GroupMan.RpcPeer):
             self.videoHandler.updateChunkSizes(dt)
             self.broadcast(self.exposed_updateChunkSizes, dt)
         self.downloadFinishedAt = time.time()
-        self.videoHandler.addChunk(ql, num, typ, resData, True) #hack, overwrite
-        self.broadcast(self.exposed_downloaded, num, ql)
-        self.videoHandler.updateDownloadStat(self.downloadStartedAt, self.downloadFinishedAt, len(resData), num, ql, typ)
+        self.videoHandler.addChunk(ql, segId, typ, resData, True) #hack, overwrite
+        self.broadcast(self.exposed_downloaded, segId, ql)
+        self.videoHandler.updateDownloadStat(self.downloadStartedAt, self.downloadFinishedAt, len(resData), segId, ql, typ)
 
     def groupSelectNextQuality(self, segId):
         now = time.time()
@@ -439,11 +439,6 @@ class DummyPlayer(GroupMan.RpcPeer):
         return downloader.gid
 
     def groupDownloadAsTeamplayer(self):
-#         if self.gid > 1:
-#             gsizes, gchunkInfo, gdownloader = self.neighbours[0].getGroupChunkInfos()
-#             self.groupInfo.sizes.update(gsizes)
-#             self.groupInfo.chunkInfo.update(gchunkInfo)
-#             self.groupInfo.downloader.update(gdownloader)
         cprint.magenta("wait for sem1")
         self.teamplayerStartSem.acquire()
         cprint.magenta("sem1 released")
@@ -452,7 +447,9 @@ class DummyPlayer(GroupMan.RpcPeer):
             cprint.magenta("recvd action", action)
             segId = action[0]
             self.status.dlQLen += 1
-            self.downloadQueue.put((segId, "*"))
+            ql = self.groupSelectNextQuality(segId) # ADDED for experiment
+            self.broadcast(self.exposed_qualityDownloading, segId, ql) # informing everyone that I am waiting for other to finish it
+            self.downloadQueue.put((segId, ql))
             sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
             if sleepTime > 0:
                 time.sleep(sleepTime)
