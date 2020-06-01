@@ -11,7 +11,12 @@ set -x
 pwd
 cd ${MININET_WD}/../
 
-python3.7 ${MININET_WD}/../webviewtest.py -m http://10.0.0.1:9876/media/mpdjson -n 10.0.0.2:10000 $WEBVIEWTEST_PARAM
+if [ "$LOG_FILE_PATH" != "" ]
+then
+    mkdir -p $(dirname $LOG_FILE_PATH)
+fi
+
+python3.7 ${MININET_WD}/../webviewtest.py -m http://10.0.0.1:9876/media/mpdjson -n 10.0.0.2:10000 $WEBVIEWTEST_PARAM |& tee $LOG_FILE_PATH
 
 EOF
 

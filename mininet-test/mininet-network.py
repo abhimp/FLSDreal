@@ -296,13 +296,15 @@ def myNetwork():
 
 def setParamFromHost(node):
     envStr = ""
+    logFile = ""
     if options.logDir is not None:
         envStr += " -L " + os.path.join(options.logDir, node.name)
+        logFile = os.path.join(options.logDir, node.name, "command.log")
 
     if options.finSock is not None:
         envStr += " -F " + options.finSock
 
-    return {"WEBVIEWTEST_PARAM": envStr}
+    return {"WEBVIEWTEST_PARAM": envStr, "LOG_FILE_PATH": logFile}
 
 def waitForSocket():
     print("Waiting for socket at", options.finSock)
