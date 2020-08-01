@@ -18,8 +18,8 @@ import sys
 
 # from util import multiprocwrap as mp
 from util.misc import getTraceBack
-from util.VideoHandler import VideoHandler
-from util.DummyPlayer import DummyPlayer
+from util.videoHandler import VideoHandler
+from util.dummyPlayer import DummyPlayer
 
 
 videoHandler = None
@@ -92,7 +92,7 @@ def serveWithHttp(httpd):
     print("serving")
     try:
         httpd.serve_forever()
-    except KeyboardInterrupt as e:
+    except KeyboardInterrupt:
         pass
     print("video ended")
     dPlayer.shutdown()
@@ -102,11 +102,12 @@ def initVideo():
     videoHandler = VideoHandler(options.mpdPath)
     print("Main Loaded")
     dPlayer = DummyPlayer(videoHandler, options)
+#     dPlayer.startBufferingThread()
     return videoHandler.getJson()
 
-def getNextChunks(playbackTime, buffers, totalStalled):
+def getNextChunks(playbackTime, buffers, totalStalled): # all in seconds
     global dPlayer
-    segDur = dPlayer.videoHandler.getSegmentDur()#.vidInfo["segmentDuration"]
+    segDur = dPlayer.videoHandler.getSegmentDur() #.vidInfo["segmentDuration"]
     dPlayer.updateState(playbackTime, buffers, totalStalled)
 #     print(playbackTime, segDur, buffers, dPlayer.nextSegId, dPlayer.setPlaybackTime)
     actions = {}
@@ -121,9 +122,9 @@ def getNextChunks(playbackTime, buffers, totalStalled):
             actions["seekto"] = dPlayer.setPlaybackTime
             dPlayer.setPlaybackTime = -1
 
-    segmentPlaying = int(playbackTime/segDur)
-    if segmentPlaying + 1 < dPlayer.nextSegId:
-        return actions, [], [], 0
+#     segmentPlaying = int(playbackTime/segDur)
+#     if segmentPlaying + 1 < dPlayer.nextSegId:
+#         return actions, [], [], 0
 
     segs, fds, l = dPlayer.getNextSeg()
     return actions, segs, fds, l

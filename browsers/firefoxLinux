@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+directory=$(mktemp -d)
+
+echo 'user_pref("media.allowed-to-play.enabled", true);' >> $directory/prefs.js
+echo 'user_pref("media.autoplay.default", 0);' >> $directory/prefs.js
+echo 'user_pref("media.autoplay.enabled.user-gestures-needed", false);' >> $directory/prefs.js
+echo 'user_pref("media.gmp.storage.version.observed", 1);' >> $directory/prefs.js
+
+firefox -no-remote -new-instance -P "pop" -profile "$directory" $@
+
+rm -rf $directory
+

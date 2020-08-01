@@ -114,23 +114,23 @@ class VideoHandler:
         self.updateChunkSizes(fs)
         return chunkSizes[ql]
 
-    def loadChunk(self, ql, num, typ):
-        num = int(num)
+    def loadChunk(self, ql, segId, typ):
+        segId = int(segId)
         chunks = self.chunks.setdefault(typ, {}).setdefault(ql, {})
-        assert num not in chunks
+        assert segId not in chunks
 
-        url = self.getChunkUrl(ql, num, typ)
-#         print(url, num)
+        url = self.getChunkUrl(ql, segId, typ)
+#         print(url, segId)
         start = time.time()
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
         if dt is not None:
             dt = json.loads(dt)
             self.updateChunkSizes(dt)
-        chunks[num] = res.read()
+        chunks[segId] = res.read()
         end = time.time()
-        clen = len(chunks[num])
-        self.updateDownloadStat(start, end, clen, num, ql, typ)
+        clen = len(chunks[segId])
+        self.updateDownloadStat(start, end, clen, segId, ql, typ)
 
     def addChunk(self, ql, num, typ, data, overwrite=False):
         num = int(num)

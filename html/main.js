@@ -144,9 +144,9 @@ function getAction(){
         }
     }
 
-    xhr.setRequestHeader("X-PlaybackTime", roundd(videoElement.currentTime, 3))
-    xhr.setRequestHeader("X-Buffer", serializeTimerange(videoElement.buffered))
-    xhr.setRequestHeader("X-Stall", roundd((totalStalled + getCurStall())/1000, 3))
+    xhr.setRequestHeader("X-PlaybackTime", roundd(videoElement.currentTime, 3)) //seconds
+    xhr.setRequestHeader("X-Buffer", serializeTimerange(videoElement.buffered)) //seconds
+    xhr.setRequestHeader("X-Stall", roundd((totalStalled + getCurStall())/1000, 3)) //seconds
 
     xhr.send()
 }

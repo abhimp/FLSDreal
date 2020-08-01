@@ -15,6 +15,7 @@ import numpy as np
 from . import groupRpyc as GroupMan
 from . import cprint
 from . import nestedObject
+from _ast import Try
 
 class CallableObj:
     def __init__(self, cb, *args):
@@ -88,11 +89,13 @@ def toDict(**kw):
 
 class DummyPlayer(GroupMan.RpcPeer):
     def __init__(self, videoHandler, options):
-        self.playbackTime = 0
-        self.startPlaybackTime = -1
-        self.playerBuffers = []
-        self.totalStalled = 0
+        self.playbackTime = 0 # seconds
+        self.startPlaybackTime = -1  # seconds
+        self.playerBuffers = [] # seconds
+        self.totalStalled = 0 # seconds
 
+        self.minBufferLength = 30 # seconds
+        self.nextBufferingSegId = 0
         self.setPlaybackTime = 0
         self.nextSegId = 0
         self.startSegment = 0
@@ -102,7 +105,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.videoQualities = list(range(len(self.videoHandler.vidInfo["bitrates"])))
         self.qoeLogFd = None
 
-        self.groupLockReleased = False
+        self.groupLockReleased = False # the true identifier if a group is actually started or not
         self.groupStarted = False
         self.connectedToNeighbour = False
         self.grpMan = None
@@ -119,7 +122,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.loadingChunk = False
         self.teamplayerStartSem = threading.Semaphore(0)
         self.downloadFrmQSem = threading.Semaphore(0)
-        self.groupSegTry = 0
+        self.groupSegTryCnt = 0
 
         self.groupInfo = None
         self.getChunkFromGroup = {}
@@ -133,7 +136,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
         self.init()
 
-    def BOLA(self):
+    def BOLA(self, segId):
         typ = 'video'
 
         V = 0.93
@@ -144,23 +147,21 @@ class DummyPlayer(GroupMan.RpcPeer):
             return 0
         if self.playbackTime < self.startPlaybackTime:
             return 0
-        bufUpto = 0
-        for x in self.playerBuffers:
-            bufUpto = x[1]
-            break
-        buflen = bufUpto - self.playbackTime
-
-        dlDetail = self.videoHandler.getDownloadStat(chunkHistory[-1][2])
-        lastThroughput = dlDetail[2] * 8 / (dlDetail[1] - dlDetail[0])
 
         p = self.videoHandler.getSegmentDur()
+        bufUpto = p*segId
+        buflen = bufUpto - self.playbackTime
+
+        dlDetail = self.videoHandler.getDownloadStat(chunkHistory[-1][2]) # start (Sec), send (sec), clen(bytes)
+        lastThroughput = dlDetail[2] * 8 / (dlDetail[1] - dlDetail[0]) # bps
+
         bitrates = self.videoHandler.getBitrates(typ)
         SM = float(bitrates[-1])
         vms = [math.log(sm/SM) for sm in bitrates]
 
         lastM = chunkHistory[-1][1] #last bitrateindex
         Q = buflen/p
-        Qmax = 30/p
+        Qmax = self.minBufferLength/p
         ts = self.playbackTime - self.startPlaybackTime
         te = ts + 1 # bad hack, it should have been video.duration - playbacktime
         t = min(ts, te)
@@ -185,7 +186,9 @@ class DummyPlayer(GroupMan.RpcPeer):
             else:
                 mprime = mprime - 1
             M = mprime
-        sleepTime = max(p * (Q - QDmax + 1), 0)
+#         sleepTime = max(p * (Q - QDmax + 1), 0)
+#         cprint.red("BOLA returns:", M, VD, (QDmax, vms,  lambdaP, lastThroughput), [((VD * vms[m] + VD*lambdaP - Q)/sm) \
+#                 for m,sm in enumerate(bitrates)])
         return M
 
     def init(self):
@@ -196,6 +199,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         print(self.setPlaybackTime, dur)
         self.nextSegId = int(self.setPlaybackTime/dur)
         self.startSegment = self.nextSegId
+        self.nextBufferingSegId = self.nextSegId
         if self.options.logDir is not None:
             self.qoeLogFd = open(os.path.join(self.options.logDir, "QoE.log"), "w")
 
@@ -234,39 +238,60 @@ class DummyPlayer(GroupMan.RpcPeer):
         assertLog(ret[0] == 1, f"ret[0]={ret[0]}")
         return Socket(con)
 
+    def doSelfLoadBuffer(self, videoQl): #audio quality is 0
+        cprint.green("Going to download video ql:", videoQl, "for seg", self.nextBufferingSegId)
+        self.videoHandler.loadChunk(videoQl, self.nextBufferingSegId, "video")
+        self.videoHandler.loadChunk(0, self.nextBufferingSegId, "audio")
+        self.nextBufferingSegId += 1
+
     # Entry point from the player. return segment if available other wise return null
     # Player might stall if returned without any segment.
     def getNextSeg(self):
+        curPlaybackTime = self.playbackTime if self.playbackTime >= self.setPlaybackTime else self.setPlaybackTime
+        segDur = self.videoHandler.getSegmentDur()
+        if True:
+            bufUpto = self.nextBufferingSegId * segDur
+            bufLen = bufUpto - curPlaybackTime
+
+            if not self.groupLockReleased:
+                if (self.nextBufferingSegId == self.groupStartedFromSegId or self.iamStarter): #best place to hold it.
+                    cprint.cyan("releasing sem2")
+                    self.downloadFrmQSem.release()
+                    cprint.magenta("releasing sem1")
+                    self.teamplayerStartSem.release()
+                    self.groupLockReleased = True
+                if bufLen < self.minBufferLength: #need to add the deadline concept here
+                    videoQl = self.BOLA(self.nextBufferingSegId)
+                    self.doSelfLoadBuffer(videoQl)
+                else: # start group and other group related activity
+                    if self.grpMan is None and self.nextBufferingSegId - self.startSegment >= 3:
+                        cprint.red("Starting group")
+                        self.startGroup()
+                    if self.grpMan is not None and self.options.neighbourAddress is not None and not self.connectedToNeighbour:
+                        cprint.green("Connection failed before, trying again")
+                        self.connectToNeighbour()
+            elif bufLen < segDur:
+                self.doSelfLoadBuffer(0)
+
+        segmentPlaying = int(curPlaybackTime/segDur)
+        if segmentPlaying + 1 < self.nextSegId:
+            return [], [], 0
+
         segs = []
         fds = []
         l = 0
-        vidQl = self.BOLA()
-        qualities = {"audio": 0, "video": vidQl} #need to add bola
-#         if (self.nextSegId >= self.groupStartedFromSegId and self.groupReady and not self.groupLockReleased) or self.iamStarter: #best place to hold it.
-        if (self.nextSegId == self.groupStartedFromSegId or self.iamStarter) and not self.groupLockReleased: #best place to hold it.
-            cprint.cyan("releasing sem2")
-            self.downloadFrmQSem.release()
-            cprint.magenta("releasing sem1")
-            self.teamplayerStartSem.release()
-            self.groupLockReleased = True
-
-        if self.iamStarter or (self. groupReady and self.nextSegId >= self.groupStartedFromSegId):
-            ql = self.groupGetVidQuality()
-            if ql < 0:
-                if self.groupSegTry < 3:
-#                     self.groupSegTry += 1
-                    return [], [], 0
-                else:
-                    cprint.magenta("Exhausted group try for seg:", self.nextSegId)
-                    ql = 0
-            self.groupSegTry = 0
-            qualities["video"] = ql
+        qualities = {"audio": 0, "video": 0}
         if self.videoHandler.ended(self.nextSegId):
             cprint.green("Sending eof")
             if self.qoeLogFd is not None:
                 self.qoeLogFd.close()
                 self.qoeLogFd = None
             return [{"eof" : True}], [], 0
+        qls = self.videoHandler.getCachedQuality(self.nextSegId, "video")
+        if len(qls) == 0: #segment is not yet available, try again later
+            return [], [], 0
+        qualities['video'] = max(qls)
+
         if self.qoeLogFd is not None:
             ql = qualities['video']
             bitrate = self.videoHandler.getBitrates('video')[ql]
@@ -289,11 +314,6 @@ class DummyPlayer(GroupMan.RpcPeer):
             segs += [seg]
 
         self.nextSegId += 1
-        if self.grpMan is None and self.nextSegId - self.startSegment >= 3:
-            self.startGroup()
-        if self.grpMan is not None and self.options.neighbourAddress is not None and not self.connectedToNeighbour:
-            cprint.green("Connection failed before, trying again")
-            self.connectToNeighbour()
         return segs, fds, l
 
 
@@ -308,16 +328,16 @@ class DummyPlayer(GroupMan.RpcPeer):
     def groupGetVidQuality(self):
         if self.iamStarter:
             self.iamStarter = False
-            self.groupStartGrpThreads(self.nextSegId)
-            self.broadcast(self.exposed_setNextDownloader, self.nextSegId, self.gid)
-        ql = self.videoHandler.getCachedQuality(self.nextSegId, "video")
+            self.groupStartGrpThreads(self.nextBufferingSegId)
+            self.broadcast(self.exposed_setNextDownloader, self.nextBufferingSegId, self.gid)
+        ql = self.videoHandler.getCachedQuality(self.nextBufferingSegId, "video")
         if len(ql) > 0:
             return max(ql)
         if self.groupInfo is not None:
-            qls = self.groupInfo.chunkInfo.setdefault(self.nextSegId, [])
+            qls = self.groupInfo.chunkInfo.setdefault(self.nextBufferingSegId, [])
             if len(qls) > 0:
                 ql = max([q[1] for q in qls])
-                self.getChunkFromGroup[(ql, self.nextSegId)] = True
+                self.getChunkFromGroup[(ql, self.nextBufferingSegId)] = True
                 return ql
         return -1
 
@@ -645,8 +665,8 @@ class DummyPlayer(GroupMan.RpcPeer):
             assertLog(not self.iamStarter, f"self.iamStarter={self.iamStarter}")
             assertLog(self.gid != gid, f"self.gid={self.gid} gid={gid}")
             gSegId = segId
-            if gSegId <= self.nextSegId:
-                gSegId = self.nextSegId + 1
+            if gSegId <= self.nextBufferingSegId:
+                gSegId = self.nextBufferingSegId + 1
             self.groupStartGrpThreads(gSegId) #if i am not starter, TODO think about it. I am the next downloader
         self.groupInfo.downloader.setdefault(segId, []).append(gid)
         if self.gid == gid:
