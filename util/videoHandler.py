@@ -5,6 +5,8 @@ import time
 from urllib.request import urlopen
 from urllib.parse import urljoin
 
+from util import cprint
+
 class VideoHandler:
     def __init__(self, mpd):
         infos = json.loads(urlopen(mpd).read())
@@ -132,12 +134,12 @@ class VideoHandler:
         clen = len(chunks[segId])
         self.updateDownloadStat(start, end, clen, segId, ql, typ)
 
-    def addChunk(self, ql, num, typ, data, overwrite=False):
-        num = int(num)
+    def addChunk(self, ql, segId, typ, data, overwrite=False):
+        segId = int(segId)
         chunks = self.chunks.setdefault(typ, {}).setdefault(ql, {})
         if not overwrite:
-            assert num not in chunks
-        chunks[num] = data
+            assert segId not in chunks
+        chunks[segId] = data
 
 
     def getInitFileDescriptor(self, ql, mt):
@@ -146,6 +148,7 @@ class VideoHandler:
 
     def getCachedQuality(self, num, mt):
         assert type(num) == int and num >= 0
+#         cprint.blue(self.chunks.keys())
         chunks = self.chunks.setdefault(mt, {})
         qls = []
         for ql, chs in chunks.items():

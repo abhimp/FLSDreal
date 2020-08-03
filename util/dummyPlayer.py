@@ -259,8 +259,9 @@ class DummyPlayer(GroupMan.RpcPeer):
                     self.downloadFrmQSem.release()
                     cprint.magenta("releasing sem1")
                     self.teamplayerStartSem.release()
+                    cprint.magenta("released sem1")
                     self.groupLockReleased = True
-                if bufLen < self.minBufferLength: #need to add the deadline concept here
+                if bufLen < self.minBufferLength and self.videoHandler.isSegmentAvaibleAtTheServer(self.nextBufferingSegId): #need to add the deadline concept here
                     videoQl = self.BOLA(self.nextBufferingSegId)
                     self.doSelfLoadBuffer(videoQl)
                 else: # start group and other group related activity
@@ -270,7 +271,10 @@ class DummyPlayer(GroupMan.RpcPeer):
                     if self.grpMan is not None and self.options.neighbourAddress is not None and not self.connectedToNeighbour:
                         cprint.green("Connection failed before, trying again")
                         self.connectToNeighbour()
-            elif bufLen < segDur:
+#             elif len(self.videoHandler.getCachedQuality(self.nextBufferingSegId, "video")) > 0:
+            elif self.groupGetVidQuality(self.nextBufferingSegId) >= 0:
+                self.nextBufferingSegId += 1
+            elif bufLen < segDur: # in group thing, they never bother about the nextsegid or next buffering segid
                 self.doSelfLoadBuffer(0)
 
         segmentPlaying = int(curPlaybackTime/segDur)
@@ -287,10 +291,13 @@ class DummyPlayer(GroupMan.RpcPeer):
                 self.qoeLogFd.close()
                 self.qoeLogFd = None
             return [{"eof" : True}], [], 0
-        qls = self.videoHandler.getCachedQuality(self.nextSegId, "video")
-        if len(qls) == 0: #segment is not yet available, try again later
+#         qls = self.videoHandler.getCachedQuality(self.nextSegId, "video")
+#         if len(qls) == 0: #segment is not yet available, try again later
+#             return [], [], 0
+        vql = self.groupGetVidQuality(self.nextSegId)
+        if vql < 0:
             return [], [], 0
-        qualities['video'] = max(qls)
+        qualities['video'] = vql
 
         if self.qoeLogFd is not None:
             ql = qualities['video']
@@ -325,19 +332,20 @@ class DummyPlayer(GroupMan.RpcPeer):
 
         self.groupInfo.sizes.update(self.videoHandler.chunkSizes)
 
-    def groupGetVidQuality(self):
+    def groupGetVidQuality(self, segId):
         if self.iamStarter:
             self.iamStarter = False
             self.groupStartGrpThreads(self.nextBufferingSegId)
             self.broadcast(self.exposed_setNextDownloader, self.nextBufferingSegId, self.gid)
-        ql = self.videoHandler.getCachedQuality(self.nextBufferingSegId, "video")
+
+        ql = self.videoHandler.getCachedQuality(segId, "video")
         if len(ql) > 0:
             return max(ql)
-        if self.groupInfo is not None:
-            qls = self.groupInfo.chunkInfo.setdefault(self.nextBufferingSegId, [])
+        if self.groupInfo is not None: #
+            qls = self.groupInfo.chunkInfo.setdefault(segId, [])
             if len(qls) > 0:
                 ql = max([q[1] for q in qls])
-                self.getChunkFromGroup[(ql, self.nextBufferingSegId)] = True
+                self.getChunkFromGroup[(ql, segId)] = True
                 return ql
         return -1
 
@@ -358,7 +366,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
         self.broadcast(self.exposed_qualityDownloading, segId, ql)
         url = self.videoHandler.getChunkUrl(ql, segId, typ)
-        print(url, segId)
+#         print(url, segId)
         self.downloadStartedAt = time.time()
         res = urlopen(url)
         dt = res.getheader('X-Chunk-Sizes')
@@ -658,6 +666,7 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def exposed_downloaded(self, rpeer, segId, ql):
         if not self.groupReady: return
+        cprint.magenta(segId, "downloaded by", rpeer.gid, "with ql =", ql)
         self.groupInfo.chunkInfo.setdefault(segId, []).append((rpeer.gid, ql))
 
     def exposed_setNextDownloader(self, rpeer, segId, gid):
