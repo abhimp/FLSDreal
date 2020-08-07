@@ -40,11 +40,12 @@ def assertLog(cond, *k):
     assert cond
 
 class AutoUpdateObject():
-    def __init__(self, callback):
+    def __init__(self, callback, onUpdateCB=None):
         self.__int_values = {}
         self.__int_cb = callback
         self.__int_autoCommit = False
         self.__int_readonly = False
+        self.__int_onUpdateCB = onUpdateCB
         self.__int_changed = set()
 
     def __getattr__(self, name):
@@ -53,6 +54,7 @@ class AutoUpdateObject():
         if name not in self.__int_values:
             raise AttributeError(f"{name} not found")
         return self.__int_values[name]
+    
     def __setattr__(self, name, val):
         if name.startswith("__int_") or name.startswith("_AutoUpdateObject"):
             super().__setattr__(name, val)
@@ -63,14 +65,20 @@ class AutoUpdateObject():
         self.__int_changed.add(name)
         if self.__int_autoCommit:
             self.commit()
+        if self.__int_onUpdateCB and callable(self.__int_onUpdateCB):
+            self.__int_onUpdateCB(name)
+            
     def update(self, kwargs):
         self.__int_values.update(kwargs)
+        
     def setAutoCommit(self, autoCommit = True):
         if self.__int_cb is not None and callable(self.__int_cb):
             return
         self.__int_autoCommit = autoCommit
+        
     def setReadOnly(self, readonly=True):
         self.__int_readonly = readonly
+        
     def commit(self):
         if self.__int_readonly:
             raise PermissionError("Readonly object")
@@ -79,8 +87,10 @@ class AutoUpdateObject():
         keys = self.__int_changed.copy()
         self.__int_changed.clear()
         self.__int_cb({x: self.__int_values[x] for x in keys})
+        
     def getCurrentStatus(self):
         return self.__int_values
+    
     def getCb(self):
         return self.__int_cb
 
@@ -123,6 +133,11 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.teamplayerStartSem = threading.Semaphore(0)
         self.downloadFrmQSem = threading.Semaphore(0)
         self.groupSegTryCnt = 0
+        
+        #=============================
+        self.groupLeaderWaitForIdlePeerSem = threading.Semaphore(0)
+        self.groupLeaderWaitForIdlePeer = False
+        #=============================
 
         self.groupInfo = None
         self.getChunkFromGroup = {}
@@ -240,8 +255,10 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def doSelfLoadBuffer(self, videoQl): #audio quality is 0
         cprint.green("Going to download video ql:", videoQl, "for seg", self.nextBufferingSegId)
+        self.downloadStartedAt = time.time()
         self.videoHandler.loadChunk(videoQl, self.nextBufferingSegId, "video")
         self.videoHandler.loadChunk(0, self.nextBufferingSegId, "audio")
+        self.downloadFinishedAt = time.time()
         self.nextBufferingSegId += 1
 
     # Entry point from the player. return segment if available other wise return null
@@ -333,10 +350,10 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupInfo.sizes.update(self.videoHandler.chunkSizes)
 
     def groupGetVidQuality(self, segId):
-        if self.iamStarter:
+        if self.iamStarter and self.downloadStartedAt < self.downloadFinishedAt: # start group thing only if idle. 
             self.iamStarter = False
             self.groupStartGrpThreads(self.nextBufferingSegId)
-            self.broadcast(self.exposed_setNextDownloader, self.nextBufferingSegId, self.gid)
+            self.broadcast(self.exposed_setNextDownloader, self.nextBufferingSegId, self.gid) # hard coded decision and it is okay.
 
         ql = self.videoHandler.getCachedQuality(segId, "video")
         if len(ql) > 0:
@@ -465,6 +482,14 @@ class DummyPlayer(GroupMan.RpcPeer):
         downloader = peers[downloader]
 #         cprint.orange(res)
         return downloader.gid
+    
+    def numIdlePlayerCount(self):
+        cnt = 0
+        peers = [y for x, y in self.getNeighbours()] + [self]
+        for p in peers: 
+            if p.status.idleTime:
+                cnt += 1
+        return cnt
 
     def groupDownloadAsTeamplayer(self):
         cprint.magenta("wait for sem1")
@@ -481,6 +506,9 @@ class DummyPlayer(GroupMan.RpcPeer):
             sleepTime = self.videoHandler.timeToSegmentAvailableAtTheServer(segId)
             if sleepTime > 0:
                 time.sleep(sleepTime)
+            while self.numIdlePlayerCount() <= 0:
+                self.groupLeaderWaitForIdlePeer = True
+                self.groupLeaderWaitForIdlePeerSem.acquire()
             nextDownloader = self.groupSelectNextDownloader(segId + 1)
             self.broadcast(self.exposed_setNextDownloader, segId+1, nextDownloader)
 
@@ -495,13 +523,24 @@ class DummyPlayer(GroupMan.RpcPeer):
                 ql = self.groupSelectNextQuality(segId)
                 assertLog(ql is not None, f"ql={ql}")
             self.groupLoadChunk(ql, segId, "video")
-
+    
+    def groupPeerOnUpdatedStatus(self, attrUpdated):
+        if attrUpdated != 'idleTime':
+            return
+        cprint.blue("Updated", self.status.getCurrentStatus())
+        if self.numIdlePlayerCount() == 0:
+            return
+        if not self.groupLeaderWaitForIdlePeer:
+            return
+        self.groupLeaderWaitForIdlePeer = False
+        self.groupLeaderWaitForIdlePeerSem.release()
+        
     def groupPrepareStatusObj(self, node, cb=None):
-        node.status = AutoUpdateObject(cb)
+        node.status = AutoUpdateObject(cb, self.groupPeerOnUpdatedStatus)
         node.status.playbackTime = 0
         node.status.idleTime = 0
         node.status.dlQLen = 0
-
+        cprint.red("Setting up status", self.status.getCurrentStatus())
 
     def groupSendChunk(self, con, mt, ql, segId):
         fd = self.videoHandler.getChunkFileDescriptor(ql, segId, mt)
@@ -614,6 +653,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.neighboursLock.acquire()
         if gid in self.neighbours: del self.neighbours[gid]
         self.neighboursLock.release()
+
     def isNeighbour(self, gid):
         self.neighboursLock.acquire()
         ret = gid in self.neighbours
@@ -635,6 +675,7 @@ class DummyPlayer(GroupMan.RpcPeer):
     def exposed_updateStatus(self, rpeer, status):
         if not self.groupReady: return
         rpeer.status.update(status)
+        
 
     def exposed_fyiIamNewHere(self, rpeer, rid):
         if not self.groupStarted: return
