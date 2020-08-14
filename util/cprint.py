@@ -1,4 +1,5 @@
 import sys
+import time
 
 BLACK = "\033[30m" #\033[40m
 RED = "\033[31m" #\033[41m
@@ -15,7 +16,7 @@ def __startColor(color, file=None):
         file=sys.stdout
     if file.isatty():
         return color
-    return ""
+    return str(time.time()) + ":"
 
 def __endColor(file=None):
     if file is None:
