@@ -26,63 +26,69 @@ def __endColor(file=None):
         file.flush()
     return ""
 
+def myprint(*a, **b):
+    file=b.get("file", None)
+    myprint(*a, **b)
+    if file:
+        file.flush() # I need all the log possible.
+
 def red(*a, **b):
     file=b.get("file", None)
-    print(__startColor(RED, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(RED, file=file), *a, __endColor(file=file), **b)
 
 def green(*a, **b):
     file=b.get("file", None)
-    print(__startColor(GREEN, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(GREEN, file=file), *a, __endColor(file=file), **b)
 
 def orange(*a, **b):
     file=b.get("file", None)
-    print(__startColor(ORANGE, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(ORANGE, file=file), *a, __endColor(file=file), **b)
 
 def blue(*a, **b):
     file=b.get("file", None)
-    print(__startColor(BLUE, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(BLUE, file=file), *a, __endColor(file=file), **b)
 
 def magenta(*a, **b):
     file=b.get("file", None)
-    print(__startColor(MAGENTA, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(MAGENTA, file=file), *a, __endColor(file=file), **b)
 
 def cyan(*a, **b):
     file=b.get("file", None)
-    print(__startColor(CYAN, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(CYAN, file=file), *a, __endColor(file=file), **b)
 
 def gray(*a, **b):
     file=b.get("file", None)
-    print(__startColor(GRAY, file=file), *a, __endColor(file=file), **b)
+    myprint(__startColor(GRAY, file=file), *a, __endColor(file=file), **b)
 
 
 def redS(**b):
     file=b.get("file", None)
-    print(__startColor(RED, file=file))
+    myprint(__startColor(RED, file=file))
 
 def greenS(**b):
     file=b.get("file", None)
-    print(__startColor(GREEN, file=file))
+    myprint(__startColor(GREEN, file=file))
 
 def orangeS(**b):
     file=b.get("file", None)
-    print(__startColor(ORANGE, file=file))
+    myprint(__startColor(ORANGE, file=file))
 
 def blueS(**b):
     file=b.get("file", None)
-    print(__startColor(BLUE, file=file))
+    myprint(__startColor(BLUE, file=file))
 
 def magentaS(**b):
     file=b.get("file", None)
-    print(__startColor(MAGENTA, file=file))
+    myprint(__startColor(MAGENTA, file=file))
 
 def cyanS(**b):
     file=b.get("file", None)
-    print(__startColor(CYAN, file=file))
+    myprint(__startColor(CYAN, file=file))
 
 def grayS(**b):
     file=b.get("file", None)
-    print(__startColor(GRAY, file=file))
+    myprint(__startColor(GRAY, file=file))
 
 def reset(**b):
     file=b.get("file", None)
-    print(__endColor(file=file))
+    myprint(__endColor(file=file))

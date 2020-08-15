@@ -338,6 +338,7 @@ class DummyPlayer(GroupMan.RpcPeer):
             segs += [seg]
 
         self.nextSegId += 1
+        cprint.red("playbackTime:", self.playbackTime, "expectedPlaybackTime:", self.videoHandler.expectedPlaybackTime())
         return segs, fds, l
 
 
@@ -519,7 +520,7 @@ class DummyPlayer(GroupMan.RpcPeer):
         cprint.cyan("sem2 released")
         while True:
             segId, ql = self.downloadQueue.get()
-            self.status.dlQLen -= 1
+            self.status.dlQLen -= 1 # TODO move it to after the download
             if ql == "*": #i.e. run quality selection
                 ql = self.groupSelectNextQuality(segId)
                 assertLog(ql is not None, f"ql={ql}")
