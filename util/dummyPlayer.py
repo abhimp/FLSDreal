@@ -520,11 +520,11 @@ class DummyPlayer(GroupMan.RpcPeer):
         cprint.cyan("sem2 released")
         while True:
             segId, ql = self.downloadQueue.get()
-            self.status.dlQLen -= 1 # TODO move it to after the download
             if ql == "*": #i.e. run quality selection
                 ql = self.groupSelectNextQuality(segId)
                 assertLog(ql is not None, f"ql={ql}")
             self.groupLoadChunk(ql, segId, "video")
+            self.status.dlQLen -= 1 # TODO move it to after the download
 
     def groupPeerOnUpdatedStatus(self, attrUpdated):
         if attrUpdated != 'idleTime':
