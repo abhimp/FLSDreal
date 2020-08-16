@@ -139,6 +139,10 @@ class DummyPlayer(GroupMan.RpcPeer):
         self.groupLeaderWaitForIdlePeer = False
         #=============================
 
+        #=============================
+        self.groupAtomicitySem = threading.Semaphore(1) #so that we can decide which segment to start group with
+        #=============================
+
         self.groupInfo = None
         self.getChunkFromGroup = {}
 
@@ -255,11 +259,12 @@ class DummyPlayer(GroupMan.RpcPeer):
 
     def doSelfLoadBuffer(self, videoQl): #audio quality is 0
         cprint.green("Going to download video ql:", videoQl, "for seg", self.nextBufferingSegId)
-        self.downloadStartedAt = time.time()
-        self.videoHandler.loadChunk(videoQl, self.nextBufferingSegId, "video")
-        self.videoHandler.loadChunk(0, self.nextBufferingSegId, "audio")
-        self.downloadFinishedAt = time.time()
+        segId = self.nextBufferingSegId
         self.nextBufferingSegId += 1
+        self.downloadStartedAt = time.time()
+        self.videoHandler.loadChunk(videoQl, segId, "video")
+        self.videoHandler.loadChunk(0, segId, "audio")
+        self.downloadFinishedAt = time.time()
 
     # Entry point from the player. return segment if available other wise return null
     # Player might stall if returned without any segment.
@@ -524,7 +529,7 @@ class DummyPlayer(GroupMan.RpcPeer):
                 ql = self.groupSelectNextQuality(segId)
                 assertLog(ql is not None, f"ql={ql}")
             self.groupLoadChunk(ql, segId, "video")
-            self.status.dlQLen -= 1 # TODO move it to after the download
+            self.status.dlQLen -= 1 #moved it to after the download
 
     def groupPeerOnUpdatedStatus(self, attrUpdated):
         if attrUpdated != 'idleTime':
@@ -623,6 +628,13 @@ class DummyPlayer(GroupMan.RpcPeer):
         fn = getattr(self, fname)
         fn(self, *args, **kwargs)
 
+    def broadcastOthers(self, func, *args, **kwargs):
+        assertLog(self.groupReady, f"self.groupReady={self.groupReady}")
+        fname = func.__name__
+        for x, peer in self.getNeighbours():
+            fn = getattr(peer, fname)
+            fn.asyncCall(self.dummyCB, *args, **kwargs)
+
     def dummyCB(self, ret, err):
         pass
 
@@ -712,16 +724,37 @@ class DummyPlayer(GroupMan.RpcPeer):
         cprint.magenta(segId, "downloaded by", rpeer.gid, "with ql =", ql)
         self.groupInfo.chunkInfo.setdefault(segId, []).append((rpeer.gid, ql))
 
+    def proxyInformation(self, segId):
+        while segId < self.nextBufferingSegId:
+            dt = {}
+            for x in ["video", "audio"]:
+                dt[x] = [[x,y] for x, y in self.videoHandler.getChunkSizes(segId, x).items()]
+            dt = {segId: dt}
+            qls = self.videoHandler.getCachedQuality(segId, "video")
+            if len(qls) == 0:
+                return segId
+            ql = max(qls)
+            self.broadcastOthers(self.exposed_setNextDownloader, segId, self.gid)
+            self.broadcastOthers(self.exposed_qualityDownloading, segId, ql)
+            self.broadcastOthers(self.exposed_updateChunkSizes, dt)
+            self.broadcastOthers(self.exposed_downloaded, segId, ql)
+
+            segId += 1
+        return segId
+
     def exposed_setNextDownloader(self, rpeer, segId, gid):
         if not self.groupReady:
             assertLog(not self.iamStarter, f"self.iamStarter={self.iamStarter}")
             assertLog(self.gid != gid, f"self.gid={self.gid} gid={gid}")
             gSegId = segId
-            if gSegId <= self.nextBufferingSegId:
+            if gSegId < self.nextBufferingSegId:
                 gSegId = self.nextBufferingSegId + 1
             self.groupStartGrpThreads(gSegId) #if i am not starter, TODO think about it. I am the next downloader
         self.groupInfo.downloader.setdefault(segId, []).append(gid)
         if self.gid == gid:
+            #TODO push it iff segId > nextBufferingSegId
+            #otherwise simulate broadcast setNextDownloader and downloaded info
+            segId = self.proxyInformation(segId)
             self.teamplayerQueue.put((segId,))
 
     def exposed_getGroupChunkInfos(self, rpeer):

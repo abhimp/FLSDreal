@@ -101,6 +101,12 @@ class VideoHandler:
                     self.chunkSizes.setdefault(mt, {}).setdefault(num, {})[ch[0]] = ch[1]
 
 
+    def getChunkSizes(self, num, typ): #need a massive change to support group based solution
+        if num == "init":
+            return len(self.initFiles[typ][ql])
+        num = int(num)
+        return self.chunkSizes.setdefault(typ, {}).setdefault(num, {})
+
     def getChunkSize(self, ql, num, typ): #need a massive change to support group based solution
         if num == "init":
             return len(self.initFiles[typ][ql])

@@ -28,7 +28,7 @@ def __endColor(file=None):
 
 def myprint(*a, **b):
     file=b.get("file", None)
-    myprint(*a, **b)
+    print(*a, **b)
     if file:
         file.flush() # I need all the log possible.
 
