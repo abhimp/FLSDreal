@@ -16,7 +16,7 @@ def __startColor(color, file=None):
         file=sys.stdout
     if file.isatty():
         return color
-    return str(time.time()) + ":"
+    return str(int(time.time())) + ":"
 
 def __endColor(file=None):
     if file is None:
