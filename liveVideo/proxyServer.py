@@ -175,6 +175,7 @@ def parseCmdArgument():
     parser.add_argument(dest="mpdPath", type=str)
     parser.add_argument('-p', '--port', dest='port', default=9876, type=int)
     parser.add_argument('-a', '--auto-start', dest='autoStart', action='store_false')
+    parser.add_argument('-e', '--almost-end', dest='almostEnd', action='store_true')
     parser.add_argument('-L', '--logDir', dest='logDir', default=None, type=str)
     parser.add_argument('-F', '--finishedSocket', dest='finSock', default=None, type=str)
 

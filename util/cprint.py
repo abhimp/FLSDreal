@@ -31,6 +31,8 @@ def myprint(*a, **b):
     print(*a, **b)
     if file:
         file.flush() # I need all the log possible.
+    else:
+        sys.stdout.flush()
 
 def red(*a, **b):
     file=b.get("file", None)

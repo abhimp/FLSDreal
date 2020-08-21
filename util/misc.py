@@ -3,6 +3,13 @@ import os
 import sys
 
 
+class CallableObj:
+    def __init__(self, cb, *args):
+        self.cb = cb
+        self.args = args
+    def __call__(self, *a, **b):
+        self.cb(*self.args, *a, **b)
+
 
 def getTraceBack(exc_info):
     error = "pid:" + str(os.getpid()) + " ppid:" + str(os.getppid()) + "\n"

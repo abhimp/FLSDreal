@@ -127,7 +127,7 @@ function getAction(){
     if(showEnded)
         return
     var xhr = new XMLHttpRequest()
-    xhr.open("POST", "action", true)
+    xhr.open("POST", "/action", true)
     try{
         xhr.responseType = 'arraybuffer';
     }catch(err){}
@@ -176,7 +176,7 @@ function finishedPlayback() {
         console.log("showEnded")
         //inform controler to close the browser and the code
         var xhr = new XMLHttpRequest()
-        xhr.open("POST", "playbackEnded", true)
+        xhr.open("POST", "/playbackEnded", true)
         try{
             xhr.responseType = 'text';
         }catch(err){}
@@ -227,7 +227,7 @@ function setUpStart() {
 function loadVideo(){
     setDomElement()
     var xhr = new XMLHttpRequest()
-    xhr.open("POST", "init", true)
+    xhr.open("POST", "/init", true)
     try{
         xhr.responseType = 'text';
     }catch(err){}
