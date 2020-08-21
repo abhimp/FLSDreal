@@ -251,7 +251,7 @@ class DummyPlayer(GroupRpc):
         fetchInWorker(self.vEloop, url, getRunInMainThreadObj(self.vEloop, self.mBuffered, cb, 'video', self.vNextBuffVidSegId, 0))
         self.vNextBuffVidSegId += 1
         if self.vNextBuffAudSegId - self.vStartSengId == 3:
-            self.mRunInWorkerThread(self.mGroupStart)
+            self.mGroupStart
 
     def mBufferAudio(self, cb):
         if self.vVidStorage.getAvailability('audio', self.vNextBuffAudSegId, 0):

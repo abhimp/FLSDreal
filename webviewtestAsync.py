@@ -8,7 +8,8 @@ import shutil
 import time
 import os
 import tempfile
-# import multiprocessing as mp
+import multiprocessing as mp
+import subprocess
 import shlex
 import socket
 import signal
@@ -19,7 +20,7 @@ import traceback as tb
 
 from util.eventQueue import EventLoop
 from util import cprint
-from util import multiprocwrap as mp
+# from util import multiprocwrap as mp
 from util.misc import getTraceBack
 from util.videoHandlerAsync import VideoHandler
 from util.dummyPlayerAsync import DummyPlayer
@@ -277,33 +278,22 @@ def parseCmdArgument():
         os.makedirs(options.logDir)
 
 
-def startWebThroughCommand(url):
-    cmdLine = options.browserCommand
+def startWebThroughCommand(cmd, url):
+    cmdLine = cmd
     cmdLine += f" \"{url}\""
-    os.system(cmdLine)
+    p = subprocess.Popen(shlex.split(cmdLine))
+#     os.system(cmdLine)
+#     cprint.red("Browser killed")
+    return p
 
 def startWeb(port):
     time.sleep(2)
     url = "http://127.0.0.1:"+str(port)+"/index.html"
     cprint.green("hello")
     if options is not None and options.browserCommand is not None:
-        startWebThroughCommand(url)
-        return
-    tmpdir = tempfile.TemporaryDirectory()
-    cmdLine = "chromium-browser"
-    cmdLine += " --incognito"
-    cmdLine += " --user-data-dir=\""+tmpdir.name+"\""
-    cmdLine += " --no-proxy-server"
-    cmdLine += " --autoplay-policy=no-user-gesture-required"
-    cmdLine += " --no-first-run"
-    cmdLine += " --enable-logging"
-    cmdLine += " --log-level=0"
-    cmdLine += " --no-default-browser-check"
-    cmdLine += " --mute-audio"
-    cmdLine += f" --app=\"{url}\""
-    print(cmdLine)
-    os.system(cmdLine)
-    tmpdir.cleanup()
+        return startWebThroughCommand(options.browserCommand, url)
+
+    return startWebThroughCommand("./browsers/chromium", url)
 
 def informClose():
     if options.finSock is None:
@@ -325,11 +315,10 @@ def main():
     port = options.groupPort
     with EventLoopServer(("",port), MyHandler) as httpd:
         print(httpd.server_address)
-        p = mp.Process(target=startWeb, args = (httpd.server_address[1],))
-        p.start()
+        p = startWeb(httpd.server_address[1])
         serveWithHttp(httpd)
         p.terminate()
-        p.join()
+        cprint.red("Pkilled")
         informClose()
         exit()
 

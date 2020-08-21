@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+directory=$(mktemp -d)
+
+clean_up() {
+    # Perform program exit housekeeping
+    kill -9 $fpid
+    rm -rf $directory
+    exit
+}
+
+trap clean_up SIGHUP SIGINT SIGTERM
+
+chromium-browser \
+ --incognito \
+ --user-data-dir=$directory \
+ --no-proxy-server \
+ --autoplay-policy=no-user-gesture-required \
+ --no-first-run \
+ --enable-logging \
+ --log-level=0 \
+ --no-default-browser-check \
+ --mute-audio \
+ --app="$@" &
+
+fpid=$!
+wait
+
+rm -rf $directory
