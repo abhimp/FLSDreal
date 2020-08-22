@@ -637,6 +637,7 @@ class DummyPlayer(GroupRpc):
             cprint.orange("GAME OVER")
             return # end of video
 
+        cprint.orange(f"Found leader for segId: {self.vGrpNextSegIdAsIAmTheLeader} => {peer.vMyGid}")
         self.mBroadcast(self.mGrpSetDownloader, peer.vMyGid, nextSegId)
 
     def mGrpMediaRequest(self, cb, content):
