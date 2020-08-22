@@ -141,7 +141,7 @@ class GroupRpc:
         try:
             ret = func(*a, **b)
         except:
-            return self.mGroupRpcResponse(cb, error=getTraceBack(sys.exc_info())) #TODO send the exception
+            return self.mGroupRpcResponse(cb, error=getTraceBack(sys.exc_info())) #Sending exception
 
         self.mGroupRpcResponse(cb, ret)
 
@@ -273,7 +273,7 @@ class DummyPlayer(GroupRpc):
                 cprint.blue(f"{self.vMyGid}: {self.vNextBuffVidSegId} fallbacking, groupstarted: {self.vGroupStartedSegId}")
                 ql = 0 #fallback
         else:
-            ql = 0 #TODO calculate
+            ql = 0 #FIXME calculate
 
         url = self.vVidHandler.getChunkUrl('video', self.vNextBuffVidSegId, ql)
         cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
@@ -449,7 +449,7 @@ class DummyPlayer(GroupRpc):
     def mStartGrpDownloading(self, segId):
         assert not self.vGrpDownloading
         self.vGrpDownloading = True
-        ql = 0 #TODO select quality based on the group
+        ql = 0 #FIXME select quality based on the group
         cllObj = CallableObj(self.mGrpDownloaded, segId, ql)
         url = self.vVidHandler.getChunkUrl('video', segId, ql)
         self.mFetch(url, cllObj)
@@ -471,20 +471,21 @@ class DummyPlayer(GroupRpc):
     def mGrpSelectNextLeader(self):
         if self.vGrpNextSegIdAsIAmTheLeader < 0:
             return
+        nextSegId = self.vGrpNextSegIdAsIAmTheLeader
+        if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
+            wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
+            self.vEloop.setTimeout(wait, self.mGrpSelectNextLeader)
+            return
         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
         if len(idles) == 0:
             return
         peer = idles.pop(0)
-        nextSegId = self.vGrpNextSegIdAsIAmTheLeader
         self.vGrpNextSegIdAsIAmTheLeader = -1
         if self.vVidStorage.ended(nextSegId):
             cprint.orange("GAME OVER")
             return # end of video
-        if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
-            wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
-            self.vEloop.setTimeout(wait, self.mBroadcast, self.mGrpSetDownloader, peer.vMyGid, nextSegId)
-        else:
-            self.mBroadcast(self.mGrpSetDownloader, peer.vMyGid, nextSegId)
+
+        self.mBroadcast(self.mGrpSetDownloader, peer.vMyGid, nextSegId)
 
     def mGrpMediaRequest(self, cb, content):
         try:
