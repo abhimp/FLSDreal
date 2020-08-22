@@ -235,6 +235,62 @@ class DummyPlayer(GroupRpc):
     def mGetJson(self):
         return self.vVidHandler.getJson()
 
+    def mBOLA(self, segId):
+        typ = 'video'
+
+        V = 0.93
+        lambdaP = 5 # 13
+        sleepTime = 0
+        chunkHistory = self.vVidStorage.getDownloadHistory(typ) # [[segid, qlid, download_id]]
+        if len(chunkHistory) == 0:
+            return 0
+        if self.vPlaybackTime < self.vStartPlaybackTime:
+            return 0
+
+        p = self.vVidHandler.getSegmentDur()
+        bufUpto = p*segId
+        buflen = bufUpto - self.vPlaybackTime
+
+#         dlDetail = self.videoHandler.getDownloadStat(chunkHistory[-1][2]) # start (Sec), send (sec), clen(bytes)
+        (segId, ql), clen, sttime, entime = chunkHistory[-1]
+        lastThroughput = clen * 8 / (entime - sttime) # bps
+
+        bitrates = self.vVidHandler.getBitrates(typ)
+        SM = float(bitrates[-1])
+        vms = [math.log(sm/SM) for sm in bitrates]
+
+        lastM = ql #last bitrateindex
+        Q = buflen/p
+        Qmax = self.vMinBufferLength/p
+        ts = self.vPlaybackTime - self.vStartPlaybackTime
+        te = ts + 1 # bad hack, it should have been video.duration - playbacktime
+        t = min(ts, te)
+        tp = max(t/2, 3 * p)
+        QDmax = min(Qmax, tp/p)
+
+        VD = (QDmax - 1)/(vms[0] + lambdaP)
+
+        M = np.argmax([((VD * vms[m] + VD*lambdaP - Q)/sm) \
+                for m,sm in enumerate(bitrates)])
+        M = int(M)
+        if M < lastM:
+            r = lastThroughput #throughput
+            mprime = min([m for m,sm in enumerate(bitrates) if sm/p < max(r, SM)] + [len(bitrates)])
+            mprime = 0 if mprime >= len(bitrates) else mprime
+            if mprime <= M:
+                mprime = M
+            elif mprime > lastM:
+                mprime = lastM
+            elif False: #some special parameter TODO
+                pass
+            else:
+                mprime = mprime - 1
+            M = mprime
+#         sleepTime = max(p * (Q - QDmax + 1), 0)
+#         cprint.red("BOLA returns:", M, VD, (QDmax, vms,  lambdaP, lastThroughput), [((VD * vms[m] + VD*lambdaP - Q)/sm) \
+#                 for m,sm in enumerate(bitrates)])
+        return M
+
     @inMain
     def mBuffered(self, cb, typ, segId, ql, status, resp, headers, st, ed):
         assert status == 200
@@ -273,7 +329,7 @@ class DummyPlayer(GroupRpc):
                 cprint.blue(f"{self.vMyGid}: {self.vNextBuffVidSegId} fallbacking, groupstarted: {self.vGroupStartedSegId}")
                 ql = 0 #fallback
         else:
-            ql = 0 #FIXME calculate
+            ql = self.mBOLA(self.vNextBuffVidSegId)
 
         url = self.vVidHandler.getChunkUrl('video', self.vNextBuffVidSegId, ql)
         cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
@@ -438,6 +494,7 @@ class DummyPlayer(GroupRpc):
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(segId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(segId)
             self.vEloop.setTimeout(wait, self.mAddToGroupDownloadQueue, segId)
+            self.mBroadcast(self.mGrpSetIdle, True)
             return
         if self.vGrpDownloading:
             self.vGrpDownloadQueue.append(segId)
@@ -479,7 +536,7 @@ class DummyPlayer(GroupRpc):
         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
         if len(idles) == 0:
             return
-        peer = idles.pop(0)
+        peer = idles.pop(0) #FIXME select leader properly
         self.vGrpNextSegIdAsIAmTheLeader = -1
         if self.vVidStorage.ended(nextSegId):
             cprint.orange("GAME OVER")

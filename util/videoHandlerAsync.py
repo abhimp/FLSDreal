@@ -83,6 +83,7 @@ class VideoStorage():
                     'typ_ql': {}, #[(typ, ql)] = segs
                     'typ_segId': {} #[(typ, segId)] = qls
                 }
+        self.dlHistory = {} #[typ] = ((segId, ql), clen, sttime, edtime)
         self.eloop = eloop
         self.vidHandler = vidHandler
         self.lastSeg = -1
@@ -120,7 +121,8 @@ class VideoStorage():
                     self.mediaSizes[(mt, segId, ch[0])] = ch[1]
 
     def storeChunk(self, typ, segId, ql, content, sttime, entime):
-        assert (typ, segId, ql) not in self.mediaSizes or self.mediaSizes[(typ, segId, ql)] == len(content)
+        clen = len(content)
+        assert (typ, segId, ql) not in self.mediaSizes or self.mediaSizes[(typ, segId, ql)] == clen
         url = f"{self.tmpDir}/{typ}_{segId}_{ql}"
         with open(url, "wb") as fp:
             fp.write(content)
@@ -128,8 +130,9 @@ class VideoStorage():
         self.mediaDownloadInfo[(typ, segId, ql)] = (sttime, entime)
         self.availability["typ_ql"].setdefault((typ, ql), set()).add(segId)
         self.availability["typ_segId"].setdefault((typ, segId), set()).add(ql)
+        self.dlHistory.setdefault(typ,[]).append(((segId, ql), clen, sttime, entime))
         if (typ, segId, ql) not in self.mediaSizes:
-            self.mediaSizes[(typ, segId, ql)] = len(content)
+            self.mediaSizes[(typ, segId, ql)] = clen
 
     def storeRemoteChunk(self, typ, segId, ql, url):
         req = Request(urljoin(url, "/groupmedia"), data=json.dumps((typ, segId, ql)).encode(), method='POST')
@@ -160,3 +163,6 @@ class VideoStorage():
         if len(vqls) == 0:
             return -1
         return max(vqls)
+
+    def getDownloadHistory(self, typ):
+        return self.dlHistory.get(typ, [])[:]
