@@ -17,16 +17,6 @@ from . import cprint
 from . import nestedObject
 from util.misc import CallableObj
 
-class Socket:
-    def __init__(self, sock):
-        self.sock = sock
-
-    def read(self, p):
-        return self.sock.recv(p)
-
-    def __getattr__(self, name):
-        return getattr(self.sock, name)
-
 def assertLog(cond, *k):
     if not cond:
         cprint.red("Assert failed:", *k)
@@ -90,30 +80,15 @@ class AutoUpdateObject():
 def toDict(**kw):
     return kw
 
-def fetch(url, cb = None):
-    st = time.time()
-#     print("starttime")
-    ret = None
-    resp = requests.get(url)
-    if resp.status_code == 200:
-        ret = 200, resp.content, resp.headers, st, time.time()
-    else:
-        ret = resp.status_code, None, resp.headers, st, time.time()
-    if cb is None:
-        return ret
-    cb(*ret)
+def inWorker(func):
+    def wrapperRunInWorker(ref, *a, **b):
+        ref.mRunInWorkerThread(func, ref, *a, **b)
+    return wrapperRunInWorker
 
-def fetchInWorker(eloop, url, cb):
-    eloop.runInWorker(fetch, url, CallableObj(eloop.addTask, cb))
-
-def getRunInMainThreadObj(eloop, cb, *a):
-    return CallableObj(eloop.addTask, cb, *a)
-
-def getVideoHandler(eloop, options):
-    status, res, headers, stt, edt = fetch(options.mpdPath)
-#     print(options.mpdPath)
-    if res is not None:
-        return VideoHandler(options.mpdPath, json.loads(res.decode()))
+def inMain(func):
+    def wrapperRunInMain(ref, *a, **b):
+        ref.mRunInMainThread(func, ref, *a, **b)
+    return wrapperRunInMain
 
 class GroupRpc:
     def __init__(self, eloop):
@@ -124,7 +99,22 @@ class GroupRpc:
         self.vEloop.addTask(func, *a, **b)
 
     def mRunInWorkerThread(self, func, *a, **b):
-        self.vEloop.runInWorker(func, *a, **b)
+        if self.vEloop.amIMainThread():
+            self.vEloop.runInWorker(func, *a, **b)
+            return
+        cllObj = CallableObj(self.vEloop.runInWorker, func)
+        self.vEloop.addTask(cllObj, *a, **b)
+
+    @inWorker
+    def mFetch(self, url, cb):
+        st = time.time()
+        ret = None
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            ret = 200, resp.content, resp.headers, st, time.time()
+        else:
+            ret = resp.status_code, None, resp.headers, st, time.time()
+        cb(*ret)
 
     def mGroupRecvRpc(self, cb, content):
         rpc = None
@@ -198,7 +188,7 @@ class DummyPlayer(GroupRpc):
     def __init__(self, eloop, options):
         super().__init__(eloop)
         self.vOptions = options
-        self.vVidHandler = getVideoHandler(eloop, options)
+        self.vVidHandler = VideoHandler(options.mpdPath)
         self.vVidStorage = VideoStorage(self.vEloop, self.vVidHandler)
 
         self.vPlaybackTime = 0 # seconds
@@ -214,7 +204,9 @@ class DummyPlayer(GroupRpc):
         self.vMinBufferLength = 30
 
         #========Group Info================
-        self.vGroupStarted = False
+        self.vGroupStarted = False # atleast neighbor require
+        self.vGroupInited = False
+        self.vIAmTheLeader = False
         self.vNeighbors = {}
         self.vMyGid = None #same as my addr
         #==================================
@@ -233,6 +225,7 @@ class DummyPlayer(GroupRpc):
     def mGetJson(self):
         return self.vVidHandler.getJson()
 
+    @inMain
     def mBuffered(self, cb, typ, segId, ql, status, resp, headers, st, ed):
         assert status == 200
         headers = dict(headers)
@@ -244,20 +237,46 @@ class DummyPlayer(GroupRpc):
         cb()
 
     def mBufferVideo(self, cb):
-        ql = 0 # TODO calculate
+        segDur = self.vVidHandler.getSegmentDur()
+        curPlaybackTime = self.vPlaybackTime if self.vPlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
+        bufVidUpto = self.vNextBuffVidSegId * segDur
+        bufVidLen = bufVidUpto - curPlaybackTime
+
+        if bufVidLen >= self.vMinBufferLength:
+            return cb()
+
+        ql = 0
+        if self.vGroupStarted:
+            if self.bufVidLen > (2*segDur):
+                return cb()
+            else:
+                ql = 0 #fallback
+        else:
+            ql = 0 #TODO calculate
+
         if self.vVidStorage.getAvailability('video', self.vNextBuffVidSegId, ql):
-            return cb
+            return cb()
         url = self.vVidHandler.getChunkUrl('video', self.vNextBuffVidSegId, ql)
-        fetchInWorker(self.vEloop, url, getRunInMainThreadObj(self.vEloop, self.mBuffered, cb, 'video', self.vNextBuffVidSegId, 0))
+        cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
+        self.mFetch(url, cllObj)
         self.vNextBuffVidSegId += 1
         if self.vNextBuffAudSegId - self.vStartSengId == 3:
-            self.mGroupStart
+            self.mGroupStart()
 
     def mBufferAudio(self, cb):
+        segDur = self.vVidHandler.getSegmentDur()
+        curPlaybackTime = self.vPlaybackTime if self.vPlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
+        bufAudUpto = self.vNextBuffAudSegId * segDur
+        bufAudLen = bufAudUpto - curPlaybackTime
+
+        if bufAudLen >= self.vMinBufferLength:
+            return cb()
+
         if self.vVidStorage.getAvailability('audio', self.vNextBuffAudSegId, 0):
             return cb()
         url = self.vVidHandler.getChunkUrl('audio', self.vNextBuffAudSegId, 0)
-        fetchInWorker(self.vEloop, url, getRunInMainThreadObj(self.vEloop, self.mBuffered, cb, 'audio', self.vNextBuffAudSegId, 0))
+        cllObj = CallableObj(self.mBuffered, cb, 'audio', self.vNextBuffAudSegId, 0)
+        self.mFetch(url, cllObj)
         self.vNextBuffAudSegId += 1
 
     def mSendResponse(self, cb):
@@ -283,11 +302,11 @@ class DummyPlayer(GroupRpc):
         if bufLen > segDur:
             return cb(actions, [], [], 0)
 
-        vqls = self.vVidStorage.getAvailability('video', self.vNextSegId, '*')
-        if len(vqls) == 0:
+        vql = self.vVidStorage.getAvailableMaxQuality('video', self.vNextSegId)
+        if vql < 0:
             return cb(actions, [], [], 0)
 
-        qualities = toDict(audio = 0, video = max(vqls))
+        qualities = toDict(audio = 0, video = vql)
         l = 0
         segs = []
         fds = []
@@ -318,39 +337,23 @@ class DummyPlayer(GroupRpc):
         self.vTotalStalled = totalStalled
 
 
-        segDur = self.vVidHandler.getSegmentDur()
-        curPlaybackTime = self.vPlaybackTime if self.vPlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
-        bufAudUpto = self.vNextBuffAudSegId * segDur
-        bufAudLen = bufAudUpto - curPlaybackTime
-        bufVidUpto = self.vNextBuffVidSegId * segDur
-        bufVidLen = bufVidUpto - curPlaybackTime
-
-        if bufAudLen > self.vMinBufferLength and bufVidLen > self.vMinBufferLength:
-            return self.mSendResponse(cb)
-
         cllObj = CallableObj(self.mSendResponse, cb)
-
-        if bufAudLen > self.vMinBufferLength:
-            return self.mBufferVideo(cllObj)
-        if bufVidLen > self.vMinBufferLength:
-            return self.mBufferAudio(cllObj)
-
         cllObj = CallableObj(self.mBufferVideo, cllObj)
-        self.mBufferAudio(cllObj)
+        self.mBufferAudio(cllObj) #call sequence, audio->video->response
 
 #================================================
 # group related task
 #================================================
     def mGroupStart(self):
         if self.vOptions.neighbourAddress is None: # I am the starter
-            self.vGroupStarted = True
+            self.vGroupInited = True
             cprint.red("Group started as self group")
             return
         self.mRunInWorkerThread(self.mGroupStartInWorker)
 
     def mGroupStartInWorker(self):
         rpc = (self.vOptions.groupPort, self.vOptions.neighbourAddress) #TODO add more to send more info
-        resp = requests.post(self.vOptions.neighbourAddress + "/groupjoin", data = json.dumps(rpc).encode())
+        resp = requests.post("http://" + self.vOptions.neighbourAddress + "/groupjoin", data = json.dumps(rpc).encode())
         ret = None
         if resp.status_code == 200:
             ret = resp.content
@@ -365,7 +368,6 @@ class DummyPlayer(GroupRpc):
             cprint.red("other side not ready yet. restarting after 2s")
             self.vEloop.setTimeout(2, self.mGroupStart)
             return
-            #TODO schedule
         elif reply[0] == "denied":
             raise NotImplementedError("denied not implemented") #TODO
         elif reply[0] != "accepted":
@@ -381,10 +383,12 @@ class DummyPlayer(GroupRpc):
             peer = GroupRpc(self.vEloop)
             peer.address = x
             self.vNeighbors[x] = peer
-        cprint.red("Group started started {len(self.vNeighbors} neighbors")
+        self.vGroupStarted = True
+        self.vGroupInited = True
+        cprint.red(f"Group started started {len(self.vNeighbors)} neighbors")
 
     def mGroupJoin(self, cb, peerIp, content):
-        if not self.vGroupStarted:
+        if not self.vGroupInited:
             return cb(("NotStarted",))
         data = None
         try:
@@ -393,7 +397,9 @@ class DummyPlayer(GroupRpc):
             return
         peerPort, myAddr = data
         if self.vMyGid is None:
-            self.vMyGid = myAddr.split(":")[0] + ":" + self.vOptions.groupPort
+            self.vMyGid = myAddr.split(":")[0] + ":" + str(self.vOptions.groupPort)
+            self.vGroupStarted = True
+            #TODO start group
 
         peerAddr = f"{peerIp}:{peerPort}"
         self.mBroadcast(self.mGroupPeerJoined, peerAddr)
@@ -401,13 +407,14 @@ class DummyPlayer(GroupRpc):
 
     def mGroupPeerJoined(self, peerAddr):
         peer = GroupRpc(self.vEloop)
-        peer.vAddress = peerAddr
+        peer.vAddress = "http://" + peerAddr
         self.vNeighbors[peerAddr] = peer
 
     def mBroadcast(self, func, *a, **b):
-        self.mRunInWorkerThread(self.__mBroadcast, func, *a, **b)
+        self._mBroadcast(func, *a, **b)
 
-    def __mBroadcast(self, func, *a, **b):
+    @inWorker
+    def _mBroadcast(self, func, *a, **b):
         funcname = func.__name__
         for gid,peer in self.vNeighbors:
             func = peer.getRpcObj(funcname)

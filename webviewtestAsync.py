@@ -196,8 +196,8 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
             contentlen = int(float(self.headers.get("Content-Length", 0)))
             if contentlen == 0:
                 return cb()
-            content = self.rfile.read(contentlen)
-            dummyPlayer = prvtDt.get("dummyPlayer", None).decode()
+            content = self.rfile.read(contentlen).decode()
+            dummyPlayer = prvtDt.get("dummyPlayer", None)
             cb = CallableObj(self.sendResponse, cb)
             self.callFuncInMainThread(dummyPlayer.mGroupRecvRpc, cb, content)
 #             DummyPlayer.groupRecv(content, cb)
@@ -206,8 +206,8 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
             contentlen = int(float(self.headers.get("Content-Length", 0)))
             if contentlen == 0:
                 return cb()
-            content = self.rfile.read(contentlen)
-            dummyPlayer = prvtDt.get("dummyPlayer", None).decode()
+            content = self.rfile.read(contentlen).decode()
+            dummyPlayer = prvtDt.get("dummyPlayer", None)
             cb = CallableObj(self.sendResponse, cb)
             clientIp = self.client_address[0]
             self.callFuncInMainThread(dummyPlayer.mGroupJoin, cb, clientIp, content)

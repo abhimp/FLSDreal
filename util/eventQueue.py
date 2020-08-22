@@ -47,6 +47,11 @@ class EventLoop():
         self.workerTerminateSem = threading.Semaphore(0)
         pass
 
+    def amIMainThread(self):
+        assert self.origThread is not None
+        curId = threading.get_ident()
+        return curId == self.origThread.ident
+
     def runInWorker(self, cb, *a, **b):
         assert self.origThread is not None
         curId = threading.get_ident()

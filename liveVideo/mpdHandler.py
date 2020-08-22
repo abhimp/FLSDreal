@@ -42,6 +42,7 @@ class VideoPlayerVoD:
 
         self.autoStart = options.autoStart
         self.almostEnd = options.almostEnd
+        self.almostEndPlayableTime = options.playbackTime
         self.origStartTime = int(time.mktime(time.gmtime())) - 4# - 500 #debug
         #===============
 #         playedTime = self.mpd.getOrigPlaybackDuration() - 120
@@ -105,7 +106,7 @@ class VideoPlayerVoD:
     def getJson(self):
         startTimeInt = int(time.mktime(time.gmtime())/(10*60))*(10*60)
         if self.almostEnd:
-            startTimeInt = int(time.mktime(time.gmtime())) - self.mpd.getOrigPlaybackDuration() + 30
+            startTimeInt = int(time.mktime(time.gmtime())) - self.mpd.getOrigPlaybackDuration() + self.almostEndPlayableTime
         if not self.autoStart:
             startTimeInt = self.origStartTime
 

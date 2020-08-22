@@ -8,8 +8,8 @@ from urllib.request import urlopen
 from util import cprint
 
 class VideoHandler:
-    def __init__(self, mpdpath, mpd):
-        infos = mpd
+    def __init__(self, mpdpath):
+        infos = json.loads(urlopen(mpdpath).read())
         self.audInfo = infos["audInfo"]
         self.vidInfo = infos["vidInfo"]
         self.infos = {"video": infos["vidInfo"], "audio": infos["audInfo"]}
@@ -145,3 +145,8 @@ class VideoStorage():
         fd = io.BytesIO(content)
         return fd
 
+    def getAvailableMaxQuality(self, typ, segId):
+        vqls = self.getAvailability('video', segId, '*')
+        if len(vqls) == 0:
+            return -1
+        return max(vqls)
