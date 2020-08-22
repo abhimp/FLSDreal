@@ -98,7 +98,11 @@ class GroupRpc:
         self.vMyGid = None #same as my addr
         self.vEloop = eloop
         self.vAddress = None
+
+        #======PEER STATS=======
         self.vIdle = True
+        self.vWorkingFrom = None
+        self.vIdleFrom = time.time()
 
     def mRunInMainThread(self, func, *a, **b):
         self.vEloop.addTask(func, *a, **b)
@@ -419,6 +423,22 @@ class DummyPlayer(GroupRpc):
 #================================================
 # group related task
 #================================================
+    def mGroupSelectNextDownloader(self, segId):
+        peers = list(self.vNeighbors.keys()) + [self]
+        now = time.time()
+        idleTimes = [0 if self.vIdleFrom is None else (now - self.vIdleFrom) for p in peers]
+        workingTimes = [0 if self.vWorkingFrom is None else (now - self.vWorkingFrom) for p in peers]
+        idleTimes = np.array(idleTimes)
+        workingTimes = np.array(workingTimes)
+#         qlen = [0 if p.status.dlQLen <= 0 else p.status.dlQLen for p in peers]
+#         qlen = np.array(qlen) * 100
+
+        res = idleTimes - workingTimes
+        downloader = np.argmax(res)
+        downloader = peers[downloader]
+#         cprint.orange(res)
+        return downloader.vMyGid
+
     def mGroupStart(self):
         if self.vOptions.neighbourAddress is None: # I am the starter
             self.vGroupInited = True
@@ -494,7 +514,6 @@ class DummyPlayer(GroupRpc):
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(segId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(segId)
             self.vEloop.setTimeout(wait, self.mAddToGroupDownloadQueue, segId)
-            self.mBroadcast(self.mGrpSetIdle, True)
             return
         if self.vGrpDownloading:
             self.vGrpDownloadQueue.append(segId)
@@ -578,12 +597,19 @@ class DummyPlayer(GroupRpc):
         self.mGrpSelectNextLeader()
 
     def mGrpSetIdle(self, srcGid, status):
-        if srcGid == self.vMyGid:
-            self.vIdle = status
-        else:
-            self.vNeighbors[srcGid].vIdle = status
+        peer = self
+        if srcGid != self.vMyGid:
+            peer = self.vNeighbors[srcGid]
+        if peer.vIdle == status: #Can ignore.
+            return
+        peer.vIdle = status
         if status:
+            self.vIdleFrom = time.time()
+            self.vWorkingFrom = None
             self.mGrpSelectNextLeader()
+        else:
+            self.vIdleFrom = None
+            self.vWorkingFrom = time.time()
 
     def mGroupPeerJoined(self, srcGid, peerAddr):
 #         if self.vMyGid == srcGid: return
