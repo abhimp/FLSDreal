@@ -574,7 +574,7 @@ class DummyPlayer(GroupRpc):
 
         peerAddr = f"{peerIp}:{peerPort}"
         nPeers = list(self.vNeighbors.values()) + [self]
-        nInfo = [(p.myGid, p.vIdle) for p in nPeers]
+        nInfo = [(p.vMyGid, p.vIdle) for p in nPeers]
         self.mBroadcast(self.mGroupPeerJoined, peerAddr)
         cb(("accepted", peerAddr, nInfo))
 
