@@ -425,12 +425,13 @@ class DummyPlayer(GroupRpc):
 #================================================
     def mGroupSelectNextDownloader(self):
         peers = list(self.vNeighbors.values()) + [self]
+        gids = [p.vMyGid for p in peers]
         now = time.time()
         idleTimes = [0 if p.vIdleFrom is None else (now - p.vIdleFrom) for p in peers]
         workingTimes = [0 if p.vWorkingFrom is None else (now - p.vWorkingFrom) for p in peers]
         idleTimes = np.array(idleTimes)
-        cprint.orange(f"idleTimes: {idleTimes}")
         workingTimes = np.array(workingTimes)
+        cprint.orange(f"gids: {gids} idleTimes: {idleTimes} workingTimes: {workingTimes}")
 
         res = idleTimes - workingTimes
         downloader = np.argmax(res)
@@ -684,18 +685,20 @@ class DummyPlayer(GroupRpc):
 
     def mGrpSetIdle(self, srcGid, status):
         peer = self
+        cprint.orange(f"status from {srcGid}: {status}")
         if srcGid != self.vMyGid:
             peer = self.vNeighbors[srcGid]
         if peer.vIdle == status: #Can ignore.
             return
+        cprint.orange(f"status from {srcGid} updating to {status}")
         peer.vIdle = status
         if status:
-            self.vIdleFrom = time.time()
-            self.vWorkingFrom = None
+            peer.vIdleFrom = time.time()
+            peer.vWorkingFrom = None
             self.mGrpSelectNextLeader()
         else:
-            self.vIdleFrom = None
-            self.vWorkingFrom = time.time()
+            peer.vIdleFrom = None
+            peer.vWorkingFrom = time.time()
 
     def mGroupPeerJoined(self, srcGid, peerAddr):
 #         if self.vMyGid == srcGid: return
