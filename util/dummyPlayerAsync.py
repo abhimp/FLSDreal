@@ -421,7 +421,7 @@ class DummyPlayer(GroupRpc):
         self.mBufferAudio(cllObj) #call sequence, audio->video->response
 
 #================================================
-# group related task
+# Core algorithm
 #================================================
     def mGroupSelectNextDownloader(self):
         peers = list(self.vNeighbors.keys()) + [self]
@@ -430,15 +430,86 @@ class DummyPlayer(GroupRpc):
         workingTimes = [0 if self.vWorkingFrom is None else (now - self.vWorkingFrom) for p in peers]
         idleTimes = np.array(idleTimes)
         workingTimes = np.array(workingTimes)
-#         qlen = [0 if p.status.dlQLen <= 0 else p.status.dlQLen for p in peers]
-#         qlen = np.array(qlen) * 100
 
         res = idleTimes - workingTimes
         downloader = np.argmax(res)
         downloader = peers[downloader]
-#         cprint.orange(res)
         return downloader #return arbit (first) peer if none of them are idle
 
+    def groupSelectNextQuality(self, segId):
+        now = time.time()
+        peers = list(self.vNeighbors.keys()) + [self]
+        segDur = self.vVidHandler.getSegmentDur()
+        deadLine = segId*segDur - max([n.status.playbackTime for n in peers])
+
+        self.deadLines[segId] = now + deadLine
+        prog = self.status.dlQLen * 100
+
+        targetQl = max(self.videoHandler.getCachedQuality(self.groupStartedFromSegId - 1, "video"))
+        futureQl = None
+        pastQl = None
+        pastQls = []
+        i = 1
+        while segId - i >= self.groupStartedFromSegId:
+            try:
+                if segId + 1 in self.groupInfo.segQuality and futureQl is None:
+                    futureQl = max([q for gid, q in self.groupInfo.segQuality[segId + 1].items()])
+                    assertLog(futureQl >= 0, f"futureQl={futureQl}")
+                if segId - 1 in self.groupInfo.segQuality:
+                    pql = max([q for gid, q in self.groupInfo.segQuality[segId - 1].items()])
+                    if pastQl is None: pastQl = pql
+                    pastQls += [pql]
+                if len(pastQls) > 4: break
+            except RuntimeError:
+                continue
+
+        clens = [int(segDur * x / 8) for x in self.videoHandler.vidInfo["bitrates"]]
+
+        if segId in self.groupInfo.sizes["video"]:
+            segInfo = self.groupInfo.sizes["video"][segId]
+            clens = [segInfo[x] for x in segInfo]
+
+
+        last5dls = np.array(self.videoHandler.downloadStat[-5:])
+        last5Time = (last5dls[:, 1]-last5dls[:, 0])
+        last5Thrpt = last5dls[:, 2] / last5Time # byte/sec
+        hthrpt = [1/x for x in last5Thrpt]  #harmonic average
+        hthrpt = len(hthrpt)/sum(hthrpt)
+
+
+        thrpt = min(hthrpt, last5Thrpt[-1], self.videoHandler.weightedThroughput/8) #BYTE/SEC
+
+        if deadLine <= 0:
+            return 0 #lowest quality as there is no time
+
+        times = [(deadLine - cl/thrpt, i) for i, cl in enumerate(clens)]
+        times = [x for x in times if x[0] > 0]
+        if len(times) == 0: #trivial case for
+            return 0
+        times.sort(key = lambda x:x[0])
+        ql = times[0][1]
+        if futureQl is not None and ql > futureQl:
+            cprint.orange(segId, "futureQl", futureQl)
+            return futureQl
+        if pastQl is not None and ql > pastQl:
+            if len(pastQls) >= 4 and min(pastQls) == max(pastQls):
+                cprint.orange(segId, "pastQl + 1", pastQl + 1)
+                return pastQl + 1
+            else:
+                cprint.orange(segId, "pastQl", pastQl)
+                return pastQl
+
+        cprint.orange(segId, "targetQl", targetQl)
+        return targetQl
+
+
+        #targetQl = lastQl[-1] if len(lastQl) > 1 else self._vAgent._vQualitiesPlayed[-1]
+        ql = random.choice(self.videoQualities)
+        return ql #TODO add algo
+
+#================================================
+# group related task
+#================================================
     def mGroupStart(self):
         if self.vOptions.neighbourAddress is None: # I am the starter
             self.vGroupInited = True
@@ -547,6 +618,7 @@ class DummyPlayer(GroupRpc):
     def mGrpSelectNextLeader(self):
         if self.vGrpNextSegIdAsIAmTheLeader < 0:
             return
+        cprint.orange(f"Trying to find leader for segId: {self.vGrpNextSegIdAsIAmTheLeader}")
         nextSegId = self.vGrpNextSegIdAsIAmTheLeader
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
