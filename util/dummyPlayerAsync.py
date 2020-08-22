@@ -423,7 +423,7 @@ class DummyPlayer(GroupRpc):
 #================================================
 # group related task
 #================================================
-    def mGroupSelectNextDownloader(self, segId):
+    def mGroupSelectNextDownloader(self):
         peers = list(self.vNeighbors.keys()) + [self]
         now = time.time()
         idleTimes = [0 if self.vIdleFrom is None else (now - self.vIdleFrom) for p in peers]
@@ -437,7 +437,7 @@ class DummyPlayer(GroupRpc):
         downloader = np.argmax(res)
         downloader = peers[downloader]
 #         cprint.orange(res)
-        return downloader.vMyGid
+        return downloader #return arbit (first) peer if none of them are idle
 
     def mGroupStart(self):
         if self.vOptions.neighbourAddress is None: # I am the starter
@@ -552,10 +552,14 @@ class DummyPlayer(GroupRpc):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
             self.vEloop.setTimeout(wait, self.mGrpSelectNextLeader)
             return
-        idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
-        if len(idles) == 0:
+#         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
+#         if len(idles) == 0:
+#             return
+#         peer = idles.pop(0) #FIXME select leader properly
+        peer = self.mGroupSelectNextDownloader()
+        if not peer.vIdle: #will try again when some peer gets free
             return
-        peer = idles.pop(0) #FIXME select leader properly
+
         self.vGrpNextSegIdAsIAmTheLeader = -1
         if self.vVidStorage.ended(nextSegId):
             cprint.orange("GAME OVER")

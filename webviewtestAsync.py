@@ -297,7 +297,7 @@ def parseCmdArgument():
     if options.logDir is not None and not os.path.isdir(options.logDir):
         os.makedirs(options.logDir)
     if options.tmpDir is None or not os.path.isdir(options.tmpDir):
-        options.tmpDir = tempfile.mkdtemp()
+        options.tmpDir = tempfile.mkdtemp(prefix="FLSD-")
 
 
 def startWebThroughCommand(cmd, url):
