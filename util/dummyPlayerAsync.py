@@ -5,8 +5,10 @@ import json
 import multiprocessing as mp
 import random
 import os
+import sys
 import numpy as np
 # from urllib.request import urlopen
+from urllib.request import urljoin
 import requests
 
 
@@ -16,6 +18,7 @@ from util.videoHandlerAsync import VideoStorage
 from . import cprint
 from . import nestedObject
 from util.misc import CallableObj
+from util.misc import getTraceBack
 
 def assertLog(cond, *k):
     if not cond:
@@ -92,8 +95,10 @@ def inMain(func):
 
 class GroupRpc:
     def __init__(self, eloop):
+        self.vMyGid = None #same as my addr
         self.vEloop = eloop
         self.vAddress = None
+        self.vIdle = True
 
     def mRunInMainThread(self, func, *a, **b):
         self.vEloop.addTask(func, *a, **b)
@@ -129,14 +134,14 @@ class GroupRpc:
         if not hasattr(self, func):
             return self.mGroupRpcResponse(cb, error=f"{func} not found")
 
-        attr = getattr(self, func)
-        if not callable(attr):
+        func = getattr(self, func)
+        if not callable(func):
             return self.mGroupRpcResponse(cb, error=f"{func} not found")
 
         try:
-            ret = attr(*a, **b)
+            ret = func(*a, **b)
         except:
-            return self.mGroupRpcResponse(cb, error=f"exception occured") #TODO send the exception
+            return self.mGroupRpcResponse(cb, error=getTraceBack(sys.exc_info())) #TODO send the exception
 
         self.mGroupRpcResponse(cb, ret)
 
@@ -179,6 +184,7 @@ class GroupRpc:
         if cb is None:
             cb = self.mNoop
         cllObj = CallableObj(self.mGroupSendRpc, cb, name)
+        return cllObj
 
     def mNoop(self, *a, **b):
         pass
@@ -189,7 +195,7 @@ class DummyPlayer(GroupRpc):
         super().__init__(eloop)
         self.vOptions = options
         self.vVidHandler = VideoHandler(options.mpdPath)
-        self.vVidStorage = VideoStorage(self.vEloop, self.vVidHandler)
+        self.vVidStorage = VideoStorage(self.vEloop, self.vVidHandler, options.tmpDir)
 
         self.vPlaybackTime = 0 # seconds
         self.vPlayerBuffers = [] # seconds
@@ -205,10 +211,14 @@ class DummyPlayer(GroupRpc):
 
         #========Group Info================
         self.vGroupStarted = False # atleast neighbor require
+        self.vGroupStartedSegId = float('inf')
         self.vGroupInited = False
-        self.vIAmTheLeader = False
+        self.vIAmStarter = False
         self.vNeighbors = {}
-        self.vMyGid = None #same as my addr
+
+        self.vGrpDownloadQueue = []
+        self.vGrpDownloading = False
+        self.vGrpNextSegIdAsIAmTheLeader = -1 #value become positive when I am leader else it stays negetive
         #==================================
 
         self.mInit()
@@ -245,17 +255,26 @@ class DummyPlayer(GroupRpc):
         if bufVidLen >= self.vMinBufferLength:
             return cb()
 
+        if len(self.vVidStorage.getAvailability('video', self.vNextBuffVidSegId, '*')) > 0:
+            self.vNextBuffVidSegId += 1
+            return cb()
+
         ql = 0
-        if self.vGroupStarted:
-            if self.bufVidLen > (2*segDur):
+        if self.vGroupStarted and (self.vGroupStartedSegId <= self.vNextBuffVidSegId or self.vIAmStarter):
+            if self.vIAmStarter:
+                self.vIAmStarter = False
+#                 self.mGrpSetDownloader(self.vNextBuffVidSegId)
+                self.vGroupStartedSegId = self.vNextBuffVidSegId
+                self.mBroadcast(self.mGrpSetDownloader, self.vMyGid, self.vNextBuffVidSegId)
+                return cb()
+            if bufVidLen > (2*segDur):
                 return cb()
             else:
+                cprint.blue(f"{self.vMyGid}: {self.vNextBuffVidSegId} fallbacking, groupstarted: {self.vGroupStartedSegId}")
                 ql = 0 #fallback
         else:
             ql = 0 #TODO calculate
 
-        if self.vVidStorage.getAvailability('video', self.vNextBuffVidSegId, ql):
-            return cb()
         url = self.vVidHandler.getChunkUrl('video', self.vNextBuffVidSegId, ql)
         cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
         self.mFetch(url, cllObj)
@@ -273,6 +292,7 @@ class DummyPlayer(GroupRpc):
             return cb()
 
         if self.vVidStorage.getAvailability('audio', self.vNextBuffAudSegId, 0):
+            self.vNextBuffAudSegId += 1
             return cb()
         url = self.vVidHandler.getChunkUrl('audio', self.vNextBuffAudSegId, 0)
         cllObj = CallableObj(self.mBuffered, cb, 'audio', self.vNextBuffAudSegId, 0)
@@ -336,7 +356,6 @@ class DummyPlayer(GroupRpc):
         self.vPlaybackTime = playbackTime
         self.vTotalStalled = totalStalled
 
-
         cllObj = CallableObj(self.mSendResponse, cb)
         cllObj = CallableObj(self.mBufferVideo, cllObj)
         self.mBufferAudio(cllObj) #call sequence, audio->video->response
@@ -347,6 +366,7 @@ class DummyPlayer(GroupRpc):
     def mGroupStart(self):
         if self.vOptions.neighbourAddress is None: # I am the starter
             self.vGroupInited = True
+            self.vIAmStarter = True
             cprint.red("Group started as self group")
             return
         self.mRunInWorkerThread(self.mGroupStartInWorker)
@@ -381,9 +401,9 @@ class DummyPlayer(GroupRpc):
             if x == self.vMyGid:
                 continue
             peer = GroupRpc(self.vEloop)
-            peer.address = x
+            peer.vMyGid = x
+            peer.vAddress = 'http://' + x
             self.vNeighbors[x] = peer
-        self.vGroupStarted = True
         self.vGroupInited = True
         cprint.red(f"Group started started {len(self.vNeighbors)} neighbors")
 
@@ -398,26 +418,119 @@ class DummyPlayer(GroupRpc):
         peerPort, myAddr = data
         if self.vMyGid is None:
             self.vMyGid = myAddr.split(":")[0] + ":" + str(self.vOptions.groupPort)
-            self.vGroupStarted = True
-            #TODO start group
+            self.vGroupStarted = True #Iamstarted
 
         peerAddr = f"{peerIp}:{peerPort}"
         self.mBroadcast(self.mGroupPeerJoined, peerAddr)
         cb(("accepted", peerAddr, list(self.vNeighbors.keys())+[self.vMyGid]))
 
-    def mGroupPeerJoined(self, peerAddr):
+    @inWorker
+    def mBroadcast(self, func, *a, **b):
+#         cprint.cyan(f"broadcasting {func}")
+        funcname = func.__name__
+        for gid,peer in self.vNeighbors.items():
+            func = peer.mGetRpcObj(funcname)
+            func(self.vMyGid, *a, **b)
+        func = getattr(self, funcname)
+        self.mRunInMainThread(func, self.vMyGid, *a, **b) #need to run in main thread
+
+    def mAddToGroupDownloadQueue(self, segId):
+        if not self.vVidHandler.isSegmentAvaibleAtTheServer(segId):
+            wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(segId)
+            self.vEloop.setTimeout(wait, self.mAddToGroupDownloadQueue, segId)
+            return
+        if self.vGrpDownloading:
+            self.vGrpDownloadQueue.append(segId)
+            return
+        self.mBroadcast(self.mGrpSetIdle, False)
+        self.mStartGrpDownloading(segId)
+
+    @inMain
+    def mStartGrpDownloading(self, segId):
+        assert not self.vGrpDownloading
+        self.vGrpDownloading = True
+        ql = 0 #TODO select quality based on the group
+        cllObj = CallableObj(self.mGrpDownloaded, segId, ql)
+        url = self.vVidHandler.getChunkUrl('video', segId, ql)
+        self.mFetch(url, cllObj)
+
+    @inMain
+    def mGrpDownloaded(self, segId, ql, status, resp, headers, st, ed):
+        headers = dict(headers)
+        dt = headers.get('X-Chunk-Sizes', "{}")
+        dt = json.loads(dt)
+        self.mBuffered(self.mNoop, 'video', segId, ql, status, resp, headers, st, ed)
+        self.mBroadcast(self.mGrpInformDownloaded, segId, ql, dt)
+        self.vGrpDownloading = False
+        if len(self.vGrpDownloadQueue) > 0:
+            segId = self.vGrpDownloadQueue.pop(0)
+            self.mStartGrpDownloading(segId) #seg is available as it is present in queue
+        else:
+            self.mBroadcast(self.mGrpSetIdle, True)
+
+    def mGrpSelectNextLeader(self):
+        if self.vGrpNextSegIdAsIAmTheLeader < 0:
+            return
+        idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
+        if len(idles) == 0:
+            return
+        peer = idles.pop(0)
+        nextSegId = self.vGrpNextSegIdAsIAmTheLeader
+        self.vGrpNextSegIdAsIAmTheLeader = -1
+        if self.vVidStorage.ended(nextSegId):
+            cprint.orange("GAME OVER")
+            return # end of video
+        if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
+            wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
+            self.vEloop.setTimeout(wait, self.mBroadcast, self.mGrpSetDownloader, peer.vMyGid, nextSegId)
+        else:
+            self.mBroadcast(self.mGrpSetDownloader, peer.vMyGid, nextSegId)
+
+    def mGrpMediaRequest(self, cb, content):
+        try:
+            typ, segId, ql = json.loads(content)
+            cprint.blue(f"Request recv: {(typ, segId, ql)}")
+            ln = self.vVidStorage.getChunkSize(typ, segId, ql)
+            fd = self.vVidStorage.getFileDescriptor(typ, segId, ql)
+            self.mRunInWorkerThread(cb, fd, ln)
+        except:
+            cprint.red(getTraceBack(sys.exc_info()))
+            cb(None, None, 503)
+
+
+
+#===================GROUP COMM=================
+    def mGrpInformDownloaded(self, gid, segId, ql, dt):
+        if gid == self.vMyGid:
+            return
+        peer = self.vNeighbors[gid]
+#         url = urljoin(peer.address, f"/grpmedia/video_{segId}_{ql}")
+        self.vVidStorage.storeRemoteChunk('video', segId, ql, peer.vAddress)
+        self.vVidStorage.updateChunkSizes(dt)
+
+    def mGrpSetDownloader(self, srcGid, gid, segId):
+        cprint.green(f"{self.vMyGid}: {gid} is supposed to download seg {segId}")
+        if not self.vGroupStarted:
+            self.vGroupStarted = True
+            self.vGroupStartedSegId = segId
+        if gid != self.vMyGid:
+            return
+        self.vGrpNextSegIdAsIAmTheLeader = segId + 1
+        self.mAddToGroupDownloadQueue(segId)
+        self.mGrpSelectNextLeader()
+
+    def mGrpSetIdle(self, srcGid, status):
+        if srcGid == self.vMyGid:
+            self.vIdle = status
+        else:
+            self.vNeighbors[srcGid].vIdle = status
+        if status:
+            self.mGrpSelectNextLeader()
+
+    def mGroupPeerJoined(self, srcGid, peerAddr):
+#         if self.vMyGid == srcGid: return
         peer = GroupRpc(self.vEloop)
+        peer.vMyGid = peerAddr
         peer.vAddress = "http://" + peerAddr
         self.vNeighbors[peerAddr] = peer
 
-    def mBroadcast(self, func, *a, **b):
-        self._mBroadcast(func, *a, **b)
-
-    @inWorker
-    def _mBroadcast(self, func, *a, **b):
-        funcname = func.__name__
-        for gid,peer in self.vNeighbors:
-            func = peer.getRpcObj(funcname)
-            func(*a, **b)
-        func = getattr(self, funcname)
-        func(*a, **b)

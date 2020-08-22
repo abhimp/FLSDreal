@@ -4,6 +4,7 @@ import io
 import time
 from urllib.parse import urljoin
 from urllib.request import urlopen
+from urllib.request import Request
 
 from util import cprint
 
@@ -36,7 +37,6 @@ class VideoHandler:
 
     def getChunkUrl(self, typ, segId, ql):
         url = urljoin(self.mpdUrl, f"chunk/{typ}-{ql}-{segId}")
-#         cprint.red(url)
         return url
 
     def getJson(self):
@@ -74,10 +74,8 @@ class VideoHandler:
     def getQlIndices(self, typ):
         return list(range(len(self.infos[typ]['bitrates'])))
 
-
-
 class VideoStorage():
-    def __init__(self, eloop, vidHandler):
+    def __init__(self, eloop, vidHandler, tmpDir):
         self.mediaContent = {} # [(typ, segId, ql)] = videoContent TODO move it to file System
         self.mediaSizes = {} # [(typ, segId, ql)] = size
         self.mediaDownloadInfo = {} # [(typ, segId, ql)] = (st, ed)
@@ -88,6 +86,7 @@ class VideoStorage():
         self.eloop = eloop
         self.vidHandler = vidHandler
         self.lastSeg = -1
+        self.tmpDir = tmpDir
 
     def ended(self, segId):
         return self.lastSeg != -1 and segId > self.lastSeg
@@ -122,12 +121,21 @@ class VideoStorage():
 
     def storeChunk(self, typ, segId, ql, content, sttime, entime):
         assert (typ, segId, ql) not in self.mediaSizes or self.mediaSizes[(typ, segId, ql)] == len(content)
-        self.mediaContent[(typ, segId, ql)] = content
+        url = f"{self.tmpDir}/{typ}_{segId}_{ql}"
+        with open(url, "wb") as fp:
+            fp.write(content)
+        self.mediaContent[(typ, segId, ql)] = "file://" + url
         self.mediaDownloadInfo[(typ, segId, ql)] = (sttime, entime)
         self.availability["typ_ql"].setdefault((typ, ql), set()).add(segId)
         self.availability["typ_segId"].setdefault((typ, segId), set()).add(ql)
         if (typ, segId, ql) not in self.mediaSizes:
             self.mediaSizes[(typ, segId, ql)] = len(content)
+
+    def storeRemoteChunk(self, typ, segId, ql, url):
+        req = Request(urljoin(url, "/groupmedia"), data=json.dumps((typ, segId, ql)).encode(), method='POST')
+        self.mediaContent[(typ, segId, ql)] = req
+        self.availability["typ_ql"].setdefault((typ, ql), set()).add(segId)
+        self.availability["typ_segId"].setdefault((typ, segId), set()).add(ql)
 
     def getChunkSize(self, typ, segId, ql):
         if segId == 'init':
@@ -140,6 +148,8 @@ class VideoStorage():
         if segId == 'init':
             return self.vidHandler.getInitFileDescriptor(typ, ql)
 
+        url = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
+        return urlopen(url)
         content = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
         assert content is not None
         fd = io.BytesIO(content)

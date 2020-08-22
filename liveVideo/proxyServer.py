@@ -39,8 +39,16 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
             "/media/chunk/": self.sendChunkAbs,
 	    "/media/sizes/": self.sendChunkSizes,
             "/media/mpdjson": self.sendMpdJson,
+            "/delayTest": self.delayTest,
         }
         self.goTarget(targets)
+
+    def delayTest(self, path):
+        time.sleep(10)
+        dt = b"Heloow asdawqw"
+        self.sendOkHeader(len(dt), "text/plain")
+        time.sleep(10)
+        self.wfile.write(dt)
 
     def sendOkHeader(self, contentlen, contenttype):
         self.send_response(200)

@@ -140,6 +140,14 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
             shutil.copyfileobj(fd, self.wfile)
         cb()
 
+    def sendResponseFromFd(self, cb, fd, ln, status = 200):
+        if status == 200:
+            self.send_ok_header(ln, 'application/octet-stream')
+            shutil.copyfileobj(fd, self.wfile)
+            cb()
+        else:
+            self.send_error(status, "Some error")
+
     def sendResponse(self, cb, data=b""):
         l = 0
         rdata = b""
@@ -212,6 +220,16 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
             clientIp = self.client_address[0]
             self.callFuncInMainThread(dummyPlayer.mGroupJoin, cb, clientIp, content)
 
+        elif self.path.startswith('/groupmedia'):
+            contentlen = int(float(self.headers.get("Content-Length", 0)))
+            if contentlen == 0:
+                return cb()
+            content = self.rfile.read(contentlen).decode()
+            dummyPlayer = prvtDt.get("dummyPlayer", None)
+            cb = CallableObj(self.sendResponseFromFd, cb)
+            clientIp = self.client_address[0]
+            self.callFuncInMainThread(dummyPlayer.mGrpMediaRequest, cb, content)
+
         else:
             cb()
 #         elif self.path.endswith('playbackEnded'):
@@ -265,17 +283,21 @@ def parseCmdArgument():
     MPD_PATH = "/home/abhijit/Downloads/dashed/bbb/media/pens.mpd"
     parser = argparse.ArgumentParser(description = "FLSD test")
 
+
     parser.add_argument('-m', '--mpd-path', dest="mpdPath", default=MPD_PATH, type=str)
     parser.add_argument('-p', '--listenPort', dest='groupPort', default=10000, type=int)
     parser.add_argument('-n', '--neighbourAddress', dest='neighbourAddress', default=None, type=str)
     parser.add_argument('-b', '--browserCommand', dest='browserCommand', default=None, type=str)
     parser.add_argument('-L', '--logDir', dest='logDir', default=None, type=str)
     parser.add_argument('-F', '--finishedSocket', dest='finSock', default=None, type=str)
+    parser.add_argument('-d', '--tmpDir', dest='tmpDir', default=None, type=str)
 
     options = parser.parse_args()
 
     if options.logDir is not None and not os.path.isdir(options.logDir):
         os.makedirs(options.logDir)
+    if options.tmpDir is None or not os.path.isdir(options.tmpDir):
+        options.tmpDir = tempfile.mkdtemp()
 
 
 def startWebThroughCommand(cmd, url):
@@ -320,6 +342,7 @@ def main():
         p.terminate()
         cprint.red("Pkilled")
         informClose()
+        shutil.rmtree(options.tmpDir)
         exit()
 
 try:
