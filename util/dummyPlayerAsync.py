@@ -429,6 +429,7 @@ class DummyPlayer(GroupRpc):
         idleTimes = [0 if p.vIdleFrom is None else (now - p.vIdleFrom) for p in peers]
         workingTimes = [0 if p.vWorkingFrom is None else (now - p.vWorkingFrom) for p in peers]
         idleTimes = np.array(idleTimes)
+        cprint.orange(f"idleTimes: {idleTimes}")
         workingTimes = np.array(workingTimes)
 
         res = idleTimes - workingTimes
@@ -544,12 +545,16 @@ class DummyPlayer(GroupRpc):
         status, myAddr, neighbors = reply
         self.vMyGid = myAddr
         self.vNeighbors = {}
-        for x in neighbors:
+        for x, idle in neighbors:
             if x == self.vMyGid:
                 continue
             peer = GroupRpc(self.vEloop)
             peer.vMyGid = x
             peer.vAddress = 'http://' + x
+            peer.vIdle = idle
+            if not idle:
+                peer.vIdleFrom = None
+                peer.vWorkingFrom = time.time()
             self.vNeighbors[x] = peer
         self.vGroupInited = True
         cprint.red(f"Group started started {len(self.vNeighbors)} neighbors")
@@ -568,8 +573,10 @@ class DummyPlayer(GroupRpc):
             self.vGroupStarted = True #Iamstarted
 
         peerAddr = f"{peerIp}:{peerPort}"
+        nPeers = list(self.vNeighbors.values()) + [self]
+        nInfo = [(p.myGid, p.vIdle) for p in nPeers]
         self.mBroadcast(self.mGroupPeerJoined, peerAddr)
-        cb(("accepted", peerAddr, list(self.vNeighbors.keys())+[self.vMyGid]))
+        cb(("accepted", peerAddr, nInfo))
 
     @inWorker
     def mBroadcast(self, func, *a, **b):
@@ -618,11 +625,11 @@ class DummyPlayer(GroupRpc):
     def mGrpSelectNextLeader(self):
         if self.vGrpNextSegIdAsIAmTheLeader < 0:
             return
-        cprint.orange(f"Trying to find leader for segId: {self.vGrpNextSegIdAsIAmTheLeader}")
+#         cprint.orange(f"Trying to find leader for segId: {self.vGrpNextSegIdAsIAmTheLeader}")
         nextSegId = self.vGrpNextSegIdAsIAmTheLeader
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
-            cprint.orange(f"Need to wait for {wait} before scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}")
+#             cprint.orange(f"Need to wait for {wait} before scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}")
             self.vEloop.setTimeout(wait, self.mGrpSelectNextLeader)
             return
 #         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
@@ -631,7 +638,7 @@ class DummyPlayer(GroupRpc):
 #         peer = idles.pop(0) #FIXME select leader properly
         peer = self.mGroupSelectNextDownloader()
         if not peer.vIdle: #will try again when some peer gets free
-            cprint.orange(f"Need to wait while scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}: {peer.vMyGid} is busy {peer.vIdle}")
+#             cprint.orange(f"Need to wait while scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}: {peer.vMyGid} is idle {peer.vIdle}")
             return
 
         self.vGrpNextSegIdAsIAmTheLeader = -1
@@ -639,7 +646,7 @@ class DummyPlayer(GroupRpc):
             cprint.orange("GAME OVER")
             return # end of video
 
-        cprint.orange(f"Found leader for segId: {nextSegId} => {peer.vMyGid}")
+#         cprint.orange(f"Found leader for segId: {nextSegId} => {peer.vMyGid}")
         self.mBroadcast(self.mGrpSetDownloader, peer.vMyGid, nextSegId)
 
     def mGrpMediaRequest(self, cb, content):
