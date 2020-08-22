@@ -630,6 +630,7 @@ class DummyPlayer(GroupRpc):
 #         peer = idles.pop(0) #FIXME select leader properly
         peer = self.mGroupSelectNextDownloader()
         if not peer.vIdle: #will try again when some peer gets free
+            cprint.orange(f"Need to wait while scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}: {peer.vMyGid} is busy {peer.vIdle}")
             return
 
         self.vGrpNextSegIdAsIAmTheLeader = -1
