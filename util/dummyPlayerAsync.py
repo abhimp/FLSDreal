@@ -622,6 +622,7 @@ class DummyPlayer(GroupRpc):
         nextSegId = self.vGrpNextSegIdAsIAmTheLeader
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
+            cprint.orange(f"Need to wait for {wait} before scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}: {peer.vMyGid} is busy {peer.vIdle}")
             self.vEloop.setTimeout(wait, self.mGrpSelectNextLeader)
             return
 #         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
