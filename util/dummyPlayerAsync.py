@@ -424,10 +424,10 @@ class DummyPlayer(GroupRpc):
 # Core algorithm
 #================================================
     def mGroupSelectNextDownloader(self):
-        peers = list(self.vNeighbors.keys()) + [self]
+        peers = list(self.vNeighbors.values()) + [self]
         now = time.time()
-        idleTimes = [0 if self.vIdleFrom is None else (now - self.vIdleFrom) for p in peers]
-        workingTimes = [0 if self.vWorkingFrom is None else (now - self.vWorkingFrom) for p in peers]
+        idleTimes = [0 if p.vIdleFrom is None else (now - p.vIdleFrom) for p in peers]
+        workingTimes = [0 if p.vWorkingFrom is None else (now - p.vWorkingFrom) for p in peers]
         idleTimes = np.array(idleTimes)
         workingTimes = np.array(workingTimes)
 
@@ -622,7 +622,7 @@ class DummyPlayer(GroupRpc):
         nextSegId = self.vGrpNextSegIdAsIAmTheLeader
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(nextSegId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(nextSegId)
-            cprint.orange(f"Need to wait for {wait} before scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}: {peer.vMyGid} is busy {peer.vIdle}")
+            cprint.orange(f"Need to wait for {wait} before scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}")
             self.vEloop.setTimeout(wait, self.mGrpSelectNextLeader)
             return
 #         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
@@ -639,7 +639,7 @@ class DummyPlayer(GroupRpc):
             cprint.orange("GAME OVER")
             return # end of video
 
-        cprint.orange(f"Found leader for segId: {self.vGrpNextSegIdAsIAmTheLeader} => {peer.vMyGid}")
+        cprint.orange(f"Found leader for segId: {nextSegId} => {peer.vMyGid}")
         self.mBroadcast(self.mGrpSetDownloader, peer.vMyGid, nextSegId)
 
     def mGrpMediaRequest(self, cb, content):
