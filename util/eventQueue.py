@@ -1,7 +1,9 @@
 import threading
 import queue
 import time
+import sys
 
+from util.misc import getTraceBack
 from util.misc import CallableObj
 
 class Worker():
@@ -29,7 +31,10 @@ class Worker():
             self.resultCB(self, res)
         self.exit = True
         if callable(self.exitCB):
-            self.exitCB(self)
+            try:
+                self.exitCB(self)
+            except:
+                cprint.red(getTraceBack(sys.exc_info()), file=sys.stderr)
 
 
 class EventLoop():
@@ -147,7 +152,10 @@ class EventLoop():
                 continue
 
             _, cb, a, b = ev
-            cb(*a, **b)
+            try:
+                cb(*a, **b)
+            except:
+                cprint.red(getTraceBack(sys.exc_info()), file=sys.stderr)
         self.exit = True
         self.terminateAndJoinWorker()
         self.origThread = None

@@ -108,7 +108,8 @@ class PlayerStat():
 
     def mGetBufUpto(self, overall=True):
         if overall:
-            return vOverAllBufUpto
+            return self.vOverAllBufUpto
+        return self.vBuffUpto
 
     def mGetPlaybackTime(self):
         now = time.time()
@@ -121,15 +122,15 @@ class PlayerStat():
         timeSpent = now - self.vLastUpdatedAt
         expPlaybackTime = self.vNativePlaybackTime + timeSpent
         pTime = min(expPlaybackTime, self.mGetBufUpto())
-        newStall = max(0, expectedPlaybackTime - pTime)
+        newStall = max(0, expPlaybackTime - pTime)
 
-    def mUpdateStat(self, nativePlaybackTime, nativePlayerBuffers, nativeTotalStalled, buffUptom, overAllBufUpto):
-        vNativePlaybackTime = nativePlaybackTime
-        vNativePlayerBuffers = nativePlayerBuffers
-        vNativeTotalStalled = nativeTotalStalled
-        vBuffUptom = buffUptom
-        vOverAllBufUpto = overAllBufUpto
-        vLastUpdatedAt = time.time()
+    def mUpdateStat(self, nativePlaybackTime, nativePlayerBuffers, nativeTotalStalled, buffUpto, overAllBufUpto):
+        self.vNativePlaybackTime = nativePlaybackTime
+        self.vNativePlayerBuffers = nativePlayerBuffers
+        self.vNativeTotalStalled = nativeTotalStalled
+        self.vBuffUpto = buffUpto
+        self.vOverAllBufUpto = overAllBufUpto
+        self.vLastUpdatedAt = time.time()
 
 class GroupRpc:
     def __init__(self, eloop):
@@ -298,10 +299,9 @@ class DummyPlayer(GroupRpc):
             return 0
 
         p = self.vVidHandler.getSegmentDur()
-        bufUpto = p*segId
+        bufUpto = p*segId #it is safe to assume that segment upto segid is already in the buffer
         buflen = bufUpto - self.vNativePlaybackTime
 
-#         dlDetail = self.videoHandler.getDownloadStat(chunkHistory[-1][2]) # start (Sec), send (sec), clen(bytes)
         (segId, ql), clen, sttime, entime = chunkHistory[-1]
         lastThroughput = clen * 8 / (entime - sttime) # bps
 
@@ -497,14 +497,41 @@ class DummyPlayer(GroupRpc):
         downloader = peers[downloader]
         return downloader #return arbit (first) peer if none of them are idle
 
+    """
     def groupSelectNextQuality(self, segId):
         now = time.time()
-        peers = list(self.vNeighbors.keys()) + [self]
+        peers = list(self.vNeighbors.values()) + [self]
         segDur = self.vVidHandler.getSegmentDur()
-        deadLine = segId*segDur - max([n.status.playbackTime for n in peers])
+#         deadLine = segId*segDur - max([n.vPlayerStat.mGetPlaybackTime() for n in peers])
+#
+#         self.deadLines[segId] = now + deadLine
+#         prog = self.status.dlQLen * 100
 
-        self.deadLines[segId] = now + deadLine
-        prog = self.status.dlQLen * 100
+        targetQl = -1
+        lastSegId = segId - 1
+        while targetQl < 0:
+            targetQl = self.vVidStorage.getAvailableMaxQuality('video', lastSegId)
+            lastSegId -= 1
+
+        assert segId - lastSegId < 4
+
+        curMaxPlaybackTime = max([n.vPlayerStat.mGetPlaybackTime() for n in peers])
+        timeToDl = segId*segDur - curMaxPlaybackTime
+
+        chunkHistory = self.vVidStorage.getDownloadHistory('video')
+        x, last5clens, last5sttime, last5entimes = zip(*chunkHistory[-5:])
+        #(segId, ql), clen, sttime, entime = chunkHistory[-1]
+
+        last5dls = np.array(self.videoHandler.downloadStat[-5:])
+        last5Time = (last5dls[:, 1]-last5dls[:, 0])
+        last5Thrpt = last5dls[:, 2] / last5Time # byte/sec
+        hthrpt = [1/x for x in last5Thrpt]  #harmonic average
+        hthrpt = len(hthrpt)/sum(hthrpt)
+
+
+        thrpt = min(hthrpt, last5Thrpt[-1], self.videoHandler.weightedThroughput/8) #BYTE/SEC
+
+        suitableQl = self.mBOLA(segId)
 
         targetQl = max(self.videoHandler.getCachedQuality(self.groupStartedFromSegId - 1, "video"))
         futureQl = None
@@ -567,6 +594,7 @@ class DummyPlayer(GroupRpc):
         #targetQl = lastQl[-1] if len(lastQl) > 1 else self._vAgent._vQualitiesPlayed[-1]
         ql = random.choice(self.videoQualities)
         return ql #TODO add algo
+        """
 
 #================================================
 # group related task
