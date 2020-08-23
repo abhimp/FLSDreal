@@ -16,7 +16,7 @@ then
     mkdir -p $(dirname $LOG_FILE_PATH)
 fi
 
-python3.7 ${MININET_WD}/../webviewtestAsync.py -m http://10.0.0.1:9876/media/mpdjson $WEBVIEWTEST_PARAM |& tee $LOG_FILE_PATH
+python3.7 ${MININET_WD}/../webviewtestAsync.py -b browsers/firefoxLinux -m http://10.0.0.1:9876/media/mpdjson $WEBVIEWTEST_PARAM |& tee $LOG_FILE_PATH
 
 EOF
 
