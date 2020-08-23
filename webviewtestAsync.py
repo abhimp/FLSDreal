@@ -267,7 +267,7 @@ def servInEloop(httpd, eloop):
     eloop.runInWorker(serveForever, eloop, httpd)
 
 def serveWithHttp(httpd):
-    eloop = EventLoop()
+    eloop = EventLoop(logDir=options.logDir + "/eloop.log")
     httpd.eloop = eloop
     eloop.addTask(servInEloop, httpd, eloop)
     print("serving")

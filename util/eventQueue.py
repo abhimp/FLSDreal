@@ -41,7 +41,7 @@ class Worker():
 
 
 class EventLoop():
-    def __init__(self, maxWorkers=7):
+    def __init__(self, maxWorkers=7, logFile=None):
         self.EV_QUEUE = queue.Queue()
         self.TIMER_QUEUE = queue.PriorityQueue()
         self.WORKER_TASK_QUEUE = queue.Queue()
@@ -54,6 +54,7 @@ class EventLoop():
         self.workerSem = threading.Semaphore(1)
         self.exit = False
         self.workerTerminateSem = threading.Semaphore(0)
+        self.logFile = None if logFile is not None else open(logFile)
         pass
 
     def amIMainThread(self):
@@ -147,10 +148,13 @@ class EventLoop():
                 continue
 
             _, cb, a, b = ev
+            if self.logFile is not None: cprint.red(f"executing {cb}", file=self.logFile)
             try:
                 cb(*a, **b)
             except:
                 cprint.red("!!ERROR in worker\n", getTraceBack(sys.exc_info()))
+                if self.logFile is not None: cprint.red(f"!!Exception while executing {cb}", file=self.logFile)
+            if self.logFile is not None: cprint.red(f"executed {cb}", file=self.logFile)
         self.exit = True
         self.terminateAndJoinWorker()
         self.origThread = None
@@ -184,5 +188,25 @@ def runInWorker(*a, **b):
     DEFAULT_EVENT_LOOP.runInWorker(*a, **b)
 def run():
     DEFAULT_EVENT_LOOP.run()
+
+
+
+def test1(eloop, testCount):
+    print("test1")
+
+    if testCount > 0:
+        eloop.addTask(test2, eloop, testCount - 1)
+    else:
+        eloop.shutdown()
+
+def test2(loop, testCount):
+    loop.setTimeout(5 - (testCount % 3), test1, loop, testCount)
+    print("setTime")
+
+def testmain():
+    loop = EventLoop()
+    loop.addTask(test2, loop, 100)
+    loop.run()
+
 
 
