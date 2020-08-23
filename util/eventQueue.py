@@ -54,7 +54,7 @@ class EventLoop():
         self.workerSem = threading.Semaphore(1)
         self.exit = False
         self.workerTerminateSem = threading.Semaphore(0)
-        self.logFile = None if logFile is not None else open(logFile)
+        self.logFile = None if logFile is None else open(logFile)
         pass
 
     def amIMainThread(self):
