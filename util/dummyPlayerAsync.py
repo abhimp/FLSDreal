@@ -705,5 +705,6 @@ class DummyPlayer(GroupRpc):
         peer = GroupRpc(self.vEloop)
         peer.vMyGid = peerAddr
         peer.vAddress = "http://" + peerAddr
-        self.vNeighbors[peerAddr] = peer
+#         self.vNeighbors[peerAddr] = peer
+        self.vNeighbors = dict(list(self.vNeighbors.items()) + [(peerAddr, peer)]) #complication to avoid modification while iteration
 
