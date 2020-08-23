@@ -93,6 +93,44 @@ def inMain(func):
         ref.mRunInMainThread(func, ref, *a, **b)
     return wrapperRunInMain
 
+class PlayerStat():
+    def __init__(self):
+        self.vNativePlaybackTime = 0 # seconds
+        self.vNativePlayerBuffers = [] # seconds
+        self.vNativeTotalStalled = 0 # seconds
+
+        self.vBuffUpto = 0 #should come from nextSegId
+        self.vOverAllBufUpto = 0 #should come from nextBufferSegId
+        self.vLastUpdatedAt = time.time()
+
+    def mGetBuffers(self):
+        return self.vNativePlayerBuffers
+
+    def mGetBufUpto(self, overall=True):
+        if overall:
+            return vOverAllBufUpto
+
+    def mGetPlaybackTime(self):
+        now = time.time()
+        timeSpent = now - self.vLastUpdatedAt
+        expPlaybackTime = self.vNativePlaybackTime + timeSpent
+        return min(expPlaybackTime, self.mGetBufUpto())
+
+    def mGetTotalStalled(self):
+        now = time.time()
+        timeSpent = now - self.vLastUpdatedAt
+        expPlaybackTime = self.vNativePlaybackTime + timeSpent
+        pTime = min(expPlaybackTime, self.mGetBufUpto())
+        newStall = max(0, expectedPlaybackTime - pTime)
+
+    def mUpdateStat(self, nativePlaybackTime, nativePlayerBuffers, nativeTotalStalled, buffUptom, overAllBufUpto):
+        vNativePlaybackTime = nativePlaybackTime
+        vNativePlayerBuffers = nativePlayerBuffers
+        vNativeTotalStalled = nativeTotalStalled
+        vBuffUptom = buffUptom
+        vOverAllBufUpto = overAllBufUpto
+        vLastUpdatedAt = time.time()
+
 class GroupRpc:
     def __init__(self, eloop):
         self.vMyGid = None #same as my addr
@@ -103,6 +141,9 @@ class GroupRpc:
         self.vIdle = True
         self.vWorkingFrom = None
         self.vIdleFrom = time.time()
+
+        self.vPlayerStat = PlayerStat()
+
 
     def mRunInMainThread(self, func, *a, **b):
         self.vEloop.addTask(func, *a, **b)
@@ -155,6 +196,7 @@ class GroupRpc:
             return
         self.mRunInMainThread(cb, toDict(res="error", error=error))
 
+    @inWorker
     def mGroupSendRpc(self, cb, func, *a, **b): #blocking, so run in worker
         assert self.vAddress is not None
         if callable(func):
@@ -201,9 +243,10 @@ class DummyPlayer(GroupRpc):
         self.vVidHandler = VideoHandler(options.mpdPath)
         self.vVidStorage = VideoStorage(self.vEloop, self.vVidHandler, options.tmpDir)
 
-        self.vPlaybackTime = 0 # seconds
-        self.vPlayerBuffers = [] # seconds
-        self.vTotalStalled = 0 # seconds
+        #======Playback Stat====
+        self.vNativePlaybackTime = 0 # seconds
+        self.vNativePlayerBuffers = [] # seconds
+        self.vNativeTotalStalled = 0 # seconds
         self.vSetPlaybackTime = 0
 
         self.vStartPlaybackTime = -1  # seconds
@@ -212,6 +255,7 @@ class DummyPlayer(GroupRpc):
         self.vNextBuffAudSegId = 0
         self.vStartSengId = -1
         self.vMinBufferLength = 30
+
 
         #========Group Info================
         self.vGroupStarted = False # atleast neighbor require
@@ -223,6 +267,8 @@ class DummyPlayer(GroupRpc):
         self.vGrpDownloadQueue = []
         self.vGrpDownloading = False
         self.vGrpNextSegIdAsIAmTheLeader = -1 #value become positive when I am leader else it stays negetive
+
+        self.vSendUpdate = False
         #==================================
 
         self.mInit()
@@ -248,12 +294,12 @@ class DummyPlayer(GroupRpc):
         chunkHistory = self.vVidStorage.getDownloadHistory(typ) # [[segid, qlid, download_id]]
         if len(chunkHistory) == 0:
             return 0
-        if self.vPlaybackTime < self.vStartPlaybackTime:
+        if self.vNativePlaybackTime < self.vStartPlaybackTime:
             return 0
 
         p = self.vVidHandler.getSegmentDur()
         bufUpto = p*segId
-        buflen = bufUpto - self.vPlaybackTime
+        buflen = bufUpto - self.vNativePlaybackTime
 
 #         dlDetail = self.videoHandler.getDownloadStat(chunkHistory[-1][2]) # start (Sec), send (sec), clen(bytes)
         (segId, ql), clen, sttime, entime = chunkHistory[-1]
@@ -266,7 +312,7 @@ class DummyPlayer(GroupRpc):
         lastM = ql #last bitrateindex
         Q = buflen/p
         Qmax = self.vMinBufferLength/p
-        ts = self.vPlaybackTime - self.vStartPlaybackTime
+        ts = self.vNativePlaybackTime - self.vStartPlaybackTime
         te = ts + 1 # bad hack, it should have been video.duration - playbacktime
         t = min(ts, te)
         tp = max(t/2, 3 * p)
@@ -308,7 +354,7 @@ class DummyPlayer(GroupRpc):
 
     def mBufferVideo(self, cb):
         segDur = self.vVidHandler.getSegmentDur()
-        curPlaybackTime = self.vPlaybackTime if self.vPlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
+        curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufVidUpto = self.vNextBuffVidSegId * segDur
         bufVidLen = bufVidUpto - curPlaybackTime
 
@@ -344,7 +390,7 @@ class DummyPlayer(GroupRpc):
 
     def mBufferAudio(self, cb):
         segDur = self.vVidHandler.getSegmentDur()
-        curPlaybackTime = self.vPlaybackTime if self.vPlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
+        curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufAudUpto = self.vNextBuffAudSegId * segDur
         bufAudLen = bufAudUpto - curPlaybackTime
 
@@ -366,7 +412,7 @@ class DummyPlayer(GroupRpc):
         actions = {}
         if self.vSetPlaybackTime > 0:
             buffered = False
-            for x in self.vPlayerBuffers:
+            for x in self.vNativePlayerBuffers:
                 if x[0] <= self.vSetPlaybackTime and x[1] >= self.vSetPlaybackTime:
                     buffered = True
                     break
@@ -375,7 +421,7 @@ class DummyPlayer(GroupRpc):
                 self.vSetPlaybackTime = -1
 
         segDur = self.vVidHandler.getSegmentDur()
-        curPlaybackTime = self.vPlaybackTime if self.vPlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
+        curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufUpto = self.vNextSegId * segDur
         bufLen = bufUpto - curPlaybackTime
 
@@ -408,17 +454,30 @@ class DummyPlayer(GroupRpc):
             segs += [seg]
 
         self.vNextSegId += 1
-#         cprint.red("playbackTime:", self.vPlaybackTime, "expectedPlaybackTime:", self.vVidHandler.expectedPlaybackTime())
+#         cprint.red("playbackTime:", self.vNativePlaybackTime, "expectedPlaybackTime:", self.vVidHandler.expectedPlaybackTime())
         cb(actions, segs, fds, l)
+        self.vSendUpdate = True
 
     def mGetNextChunks(self, cb, playbackTime, buffers, totalStalled):
-        self.vPlayerBuffers = buffers[:]
-        self.vPlaybackTime = playbackTime
-        self.vTotalStalled = totalStalled
+        self.vNativePlayerBuffers = buffers[:]
+        self.vNativePlaybackTime = playbackTime
+        self.vNativeTotalStalled = totalStalled
 
         cllObj = CallableObj(self.mSendResponse, cb)
         cllObj = CallableObj(self.mBufferVideo, cllObj)
         self.mBufferAudio(cllObj) #call sequence, audio->video->response
+
+        if not self.vSendUpdate: return
+        self.vSendUpdate = False
+
+        nextBufferSegId = min(self.vNextBuffVidSegId, self.vNextBuffAudSegId)
+        segDur = self.vVidHandler.getSegmentDur()
+        self.mBroadcast(self.mGroupSetCurStatus,
+                        self.vNativePlaybackTime,
+                        self.vNativePlayerBuffers,
+                        self.vNativeTotalStalled,
+                        self.vNextSegId * segDur,
+                        nextBufferSegId * segDur)
 
 #================================================
 # Core algorithm
@@ -429,9 +488,9 @@ class DummyPlayer(GroupRpc):
         now = time.time()
         idleTimes = [0 if p.vIdleFrom is None else (now - p.vIdleFrom) for p in peers]
         workingTimes = [0 if p.vWorkingFrom is None else (now - p.vWorkingFrom) for p in peers]
+        cprint.orange(f"gids: {gids} idleTimes: {idleTimes} workingTimes: {workingTimes}")
         idleTimes = np.array(idleTimes)
         workingTimes = np.array(workingTimes)
-        cprint.orange(f"gids: {gids} idleTimes: {idleTimes} workingTimes: {workingTimes}")
 
         res = idleTimes - workingTimes
         downloader = np.argmax(res)
@@ -633,10 +692,6 @@ class DummyPlayer(GroupRpc):
 #             cprint.orange(f"Need to wait for {wait} before scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}")
             self.vEloop.setTimeout(wait, self.mGrpSelectNextLeader)
             return
-#         idles = [p for p in list(self.vNeighbors.values())+[self] if p.vIdle]
-#         if len(idles) == 0:
-#             return
-#         peer = idles.pop(0) #FIXME select leader properly
         peer = self.mGroupSelectNextDownloader()
         if not peer.vIdle: #will try again when some peer gets free
 #             cprint.orange(f"Need to wait while scheduling: segId: {self.vGrpNextSegIdAsIAmTheLeader}: {peer.vMyGid} is idle {peer.vIdle}")
@@ -685,12 +740,12 @@ class DummyPlayer(GroupRpc):
 
     def mGrpSetIdle(self, srcGid, status):
         peer = self
-        cprint.orange(f"status from {srcGid}: {status}")
+#         cprint.orange(f"status from {srcGid}: {status}")
         if srcGid != self.vMyGid:
             peer = self.vNeighbors[srcGid]
         if peer.vIdle == status: #Can ignore.
             return
-        cprint.orange(f"status from {srcGid} updating to {status}")
+#         cprint.orange(f"status from {srcGid} updating to {status}")
         peer.vIdle = status
         if status:
             peer.vIdleFrom = time.time()
@@ -708,3 +763,9 @@ class DummyPlayer(GroupRpc):
 #         self.vNeighbors[peerAddr] = peer
         self.vNeighbors = dict(list(self.vNeighbors.items()) + [(peerAddr, peer)]) #complication to avoid modification while iteration
 
+    def mGroupSetCurStatus(self, srcGid, nativePlaybackTime, nativePlayerBuffers, nativeTotalStalled, buffUptom, overAllBufUpto):
+        peer = self
+#         cprint.orange(f"status from {srcGid}: {status}")
+        if srcGid != self.vMyGid:
+            peer = self.vNeighbors[srcGid]
+        peer.vPlayerStat.mUpdateStat(nativePlaybackTime, nativePlayerBuffers, nativeTotalStalled, buffUptom, overAllBufUpto)
