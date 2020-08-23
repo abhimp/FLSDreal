@@ -497,8 +497,8 @@ class DummyPlayer(GroupRpc):
         downloader = peers[downloader]
         return downloader #return arbit (first) peer if none of them are idle
 
-    """
     def groupSelectNextQuality(self, segId):
+        typ = 'video'
         now = time.time()
         peers = list(self.vNeighbors.values()) + [self]
         segDur = self.vVidHandler.getSegmentDur()
@@ -510,7 +510,7 @@ class DummyPlayer(GroupRpc):
         targetQl = -1
         lastSegId = segId - 1
         while targetQl < 0:
-            targetQl = self.vVidStorage.getAvailableMaxQuality('video', lastSegId)
+            targetQl = self.vVidStorage.getAvailableMaxQuality(typ, lastSegId)
             lastSegId -= 1
 
         assert segId - lastSegId < 4
@@ -518,83 +518,36 @@ class DummyPlayer(GroupRpc):
         curMaxPlaybackTime = max([n.vPlayerStat.mGetPlaybackTime() for n in peers])
         timeToDl = segId*segDur - curMaxPlaybackTime
 
-        chunkHistory = self.vVidStorage.getDownloadHistory('video')
-        x, last5clens, last5sttime, last5entimes = zip(*chunkHistory[-5:])
+        if timeToDl < 1: #no time to dl
+            return 0
+
+        chunkHistory = self.vVidStorage.getDownloadHistory(typ)
+        x, last5clens, last5sttimes, last5entimes = zip(*chunkHistory[-5:])
         #(segId, ql), clen, sttime, entime = chunkHistory[-1]
 
-        last5dls = np.array(self.videoHandler.downloadStat[-5:])
-        last5Time = (last5dls[:, 1]-last5dls[:, 0])
-        last5Thrpt = last5dls[:, 2] / last5Time # byte/sec
-        hthrpt = [1/x for x in last5Thrpt]  #harmonic average
+        last5clens = np.array(last5clens)
+        last5sttimes = np.array(last5sttimes)
+        last5entimes = np.array(last5entimes)
+        last5durs = last5entimes - last5sttimes
+        last5thrps = last5clens / last5durs #bytes/sec
+
+        hthrpt = [1/x for x in last5thrps]  #harmonic average
         hthrpt = len(hthrpt)/sum(hthrpt)
+        thrpt = min(hthrpt, last5thrps[-1])
 
+        dlLimit = thrpt*timeToDl
 
-        thrpt = min(hthrpt, last5Thrpt[-1], self.videoHandler.weightedThroughput/8) #BYTE/SEC
+        bitrates = self.vVidHandler.getBitrates(typ)
+        chunkSizes = [self.vVidStorage.getChunkSize(typ, segId, i) for i, x in enumerate(bitrates)]
 
-        suitableQl = self.mBOLA(segId)
+        matchDl = [dlLimit - c for c in chunkSizes]
+        matchDl = [float('inf') if md < 0 else md for md in matchDl]
 
-        targetQl = max(self.videoHandler.getCachedQuality(self.groupStartedFromSegId - 1, "video"))
-        futureQl = None
-        pastQl = None
-        pastQls = []
-        i = 1
-        while segId - i >= self.groupStartedFromSegId:
-            try:
-                if segId + 1 in self.groupInfo.segQuality and futureQl is None:
-                    futureQl = max([q for gid, q in self.groupInfo.segQuality[segId + 1].items()])
-                    assertLog(futureQl >= 0, f"futureQl={futureQl}")
-                if segId - 1 in self.groupInfo.segQuality:
-                    pql = max([q for gid, q in self.groupInfo.segQuality[segId - 1].items()])
-                    if pastQl is None: pastQl = pql
-                    pastQls += [pql]
-                if len(pastQls) > 4: break
-            except RuntimeError:
-                continue
+        suitableQl = np.argmin(matchDl)
 
-        clens = [int(segDur * x / 8) for x in self.videoHandler.vidInfo["bitrates"]]
-
-        if segId in self.groupInfo.sizes["video"]:
-            segInfo = self.groupInfo.sizes["video"][segId]
-            clens = [segInfo[x] for x in segInfo]
-
-
-        last5dls = np.array(self.videoHandler.downloadStat[-5:])
-        last5Time = (last5dls[:, 1]-last5dls[:, 0])
-        last5Thrpt = last5dls[:, 2] / last5Time # byte/sec
-        hthrpt = [1/x for x in last5Thrpt]  #harmonic average
-        hthrpt = len(hthrpt)/sum(hthrpt)
-
-
-        thrpt = min(hthrpt, last5Thrpt[-1], self.videoHandler.weightedThroughput/8) #BYTE/SEC
-
-        if deadLine <= 0:
-            return 0 #lowest quality as there is no time
-
-        times = [(deadLine - cl/thrpt, i) for i, cl in enumerate(clens)]
-        times = [x for x in times if x[0] > 0]
-        if len(times) == 0: #trivial case for
-            return 0
-        times.sort(key = lambda x:x[0])
-        ql = times[0][1]
-        if futureQl is not None and ql > futureQl:
-            cprint.orange(segId, "futureQl", futureQl)
-            return futureQl
-        if pastQl is not None and ql > pastQl:
-            if len(pastQls) >= 4 and min(pastQls) == max(pastQls):
-                cprint.orange(segId, "pastQl + 1", pastQl + 1)
-                return pastQl + 1
-            else:
-                cprint.orange(segId, "pastQl", pastQl)
-                return pastQl
-
-        cprint.orange(segId, "targetQl", targetQl)
-        return targetQl
-
-
-        #targetQl = lastQl[-1] if len(lastQl) > 1 else self._vAgent._vQualitiesPlayed[-1]
-        ql = random.choice(self.videoQualities)
-        return ql #TODO add algo
-        """
+        if suitableQl <= targetQl:
+            return suitableQl
+        return targetQl + 1
 
 #================================================
 # group related task

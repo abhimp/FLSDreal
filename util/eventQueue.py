@@ -34,7 +34,7 @@ class Worker():
             try:
                 self.exitCB(self)
             except:
-                cprint.red(getTraceBack(sys.exc_info()), file=sys.stderr)
+                cprint.red("!!ERROR in worker\n", getTraceBack(sys.exc_info()))
 
 
 class EventLoop():
@@ -155,7 +155,7 @@ class EventLoop():
             try:
                 cb(*a, **b)
             except:
-                cprint.red(getTraceBack(sys.exc_info()), file=sys.stderr)
+                cprint.red("!!ERROR in worker\n", getTraceBack(sys.exc_info()))
         self.exit = True
         self.terminateAndJoinWorker()
         self.origThread = None
