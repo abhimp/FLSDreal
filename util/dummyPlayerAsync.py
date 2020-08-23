@@ -383,7 +383,7 @@ class DummyPlayer(GroupRpc):
 
         url = self.vVidHandler.getChunkUrl('video', self.vNextBuffVidSegId, ql)
         cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
-        self.mFetch(url, cllObj)
+        self.mFetch(url, cllObj) #calling
         self.vNextBuffVidSegId += 1
         if self.vNextBuffAudSegId - self.vStartSengId == 3:
             self.mGroupStart()
@@ -402,7 +402,7 @@ class DummyPlayer(GroupRpc):
             return cb()
         url = self.vVidHandler.getChunkUrl('audio', self.vNextBuffAudSegId, 0)
         cllObj = CallableObj(self.mBuffered, cb, 'audio', self.vNextBuffAudSegId, 0)
-        self.mFetch(url, cllObj)
+        self.mFetch(url, cllObj) #calling
         self.vNextBuffAudSegId += 1
 
     def mSendResponse(self, cb):
@@ -715,6 +715,7 @@ class DummyPlayer(GroupRpc):
             self.vGroupStartedSegId = segId
         if gid != self.vMyGid:
             return
+        cprint.green(f"I am supposed to download {segId}")
         self.vGrpNextSegIdAsIAmTheLeader = segId + 1
         self.mAddToGroupDownloadQueue(segId)
         self.mGrpSelectNextLeader()

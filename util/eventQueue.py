@@ -5,14 +5,15 @@ import sys
 
 from util.misc import getTraceBack
 from util.misc import CallableObj
+from util import cprint
 
 class Worker():
-    def __init__(self, resultCB, exitCB=None):
+    def __init__(self, reqTaskCB, exitCB=None):
         self.thread = threading.Thread(target=self.run)
         self.working = False
         self.exit = False
-        self.taskQueue = queue.Queue()
-        self.resultCB = resultCB
+        self.task = None
+        self.reqTaskCB = reqTaskCB
         self.exitCB = exitCB
         self.thread.start()
 
@@ -20,15 +21,17 @@ class Worker():
         return self.thread.ident
 
     def run(self):
+        res = None
         while not self.exit:
-            task = self.taskQueue.get()
+            self.reqTaskCB(self, res)
+            task = self.task
+            self.task = None
             if task[0] == 'exit':
                 break
             cb, a, b = task
             self.working = True
             res = cb(*a, **b)
             self.working = False
-            self.resultCB(self, res)
         self.exit = True
         if callable(self.exitCB):
             try:
@@ -42,9 +45,10 @@ class EventLoop():
         self.EV_QUEUE = queue.Queue()
         self.TIMER_QUEUE = queue.PriorityQueue()
         self.WORKER_TASK_QUEUE = queue.Queue()
-        self.workerGroupIdle = []
+#         self.workerGroupIdle = []
         self.workerGroupTerminated = []
         self.maxWorkers = maxWorkers
+        self.numIdleWorker = 0
         self.numWorkers = 0
         self.origThread = None
         self.workerSem = threading.Semaphore(1)
@@ -64,22 +68,14 @@ class EventLoop():
         if self.exit:
             return
 
-        worker = None
         self.workerSem.acquire()
-        if len(self.workerGroupIdle) == 0:
-            if self.numWorkers < self.maxWorkers:
-                worker = Worker(self.workerFinishedTask, self.workerExited)
-                self.numWorkers += 1
-                print("numWorkers:", self.numWorkers)
-        else:
-            worker = self.workerGroupIdle.pop(0)
-
-        if worker:
-            worker.taskQueue.put((cb, a, b))
-        else:
-            self.WORKER_TASK_QUEUE.put((cb, a, b))
-
+        numIdle = self.numIdleWorker
         self.workerSem.release()
+        if numIdle == 0 and self.numWorkers < self.maxWorkers:
+            worker = Worker(self.workerFinishedTask, self.workerExited)
+            self.numWorkers += 1
+            print("numWorkers:", self.numWorkers)
+        self.WORKER_TASK_QUEUE.put((cb, a, b))
 
     def workerFinishedTask(self, worker, res):
         assert self.origThread is not None
@@ -87,11 +83,12 @@ class EventLoop():
         assert curId != self.origThread.ident and curId == worker.getId()
 
         self.workerSem.acquire()
-        if self.WORKER_TASK_QUEUE.qsize() > 0:
-            task = self.WORKER_TASK_QUEUE.get()
-            worker.taskQueue.put(task)
-        else:
-            self.workerGroupIdle.append(worker)
+        self.numIdleWorker += 1
+        self.workerSem.release()
+        task = self.WORKER_TASK_QUEUE.get()
+        worker.task = task
+        self.workerSem.acquire()
+        self.numIdleWorker -= 1
         self.workerSem.release()
 
     def workerExited(self, worker):
@@ -116,11 +113,7 @@ class EventLoop():
         self.workerSem.acquire()
         numWorkers = self.numWorkers
         for x in range(numWorkers):
-            if len(self.workerGroupIdle) > 0:
-                worker = self.workerGroupIdle.pop()
-                worker.taskQueue.put(('exit',))
-            else:
-                self.WORKER_TASK_QUEUE.put(('exit',))
+            self.WORKER_TASK_QUEUE.put(('exit',))
         self.workerSem.release()
 
         for x in range(numWorkers):
@@ -143,6 +136,8 @@ class EventLoop():
                     self.TIMER_QUEUE.put(ev)
                     timeout = ev[0] - curTime
                     ev = None
+                else:
+                    cprint.red(f"timeout for func {ev[1]}")
             if ev is None:
                 try:
                     ev = self.EV_QUEUE.get(timeout=timeout)
@@ -171,6 +166,7 @@ class EventLoop():
         assert timeout >= 0
         if timeout <= 0.001:
             return self.addEvent(cb, *a, **b)
+        cprint.red(f"timeout for {timeout}s for func {cb}")
         runat = time.time() + timeout
         self.TIMER_QUEUE.put((runat, cb, a, b))
         self.addTask(self.noop) #let the event handler know that there is a event
