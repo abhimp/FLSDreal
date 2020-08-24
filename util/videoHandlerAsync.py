@@ -88,6 +88,10 @@ class VideoStorage():
         self.vidHandler = vidHandler
         self.lastSeg = -1
         self.tmpDir = tmpDir
+        self.avgChunkSize = {
+                'video' : [int(self.vidHandler.getSegmentDur() * b / 8) for b in self.vidHandler.getBitrates('video')],
+                'audio' : [int(self.vidHandler.getSegmentDur() * b / 8) for b in self.vidHandler.getBitrates('audio')],
+                }
 
     def ended(self, segId):
         return self.lastSeg != -1 and segId > self.lastSeg
@@ -168,3 +172,6 @@ class VideoStorage():
 
     def getDownloadHistory(self, typ):
         return self.dlHistory.get(typ, [])[:]
+
+    def getAvgChunkSizes(self, typ):
+        return self.avgChunkSize[typ]

@@ -581,7 +581,11 @@ class DummyPlayer(GroupRpc):
         dlLimit = thrpt*timeToDl
 
         bitrates = self.vVidHandler.getBitrates(typ)
-        chunkSizes = [self.vVidStorage.getChunkSize(typ, segId, i) for i, x in enumerate(bitrates)]
+        chunkSizes = self.vVidStorage.getAvgChunkSizes(typ)
+        try:
+            chunkSizes = [self.vVidStorage.getChunkSize(typ, segId, i) for i, x in enumerate(bitrates)]
+        except:
+            pass #fixme
 
         matchDl = [dlLimit - c for c in chunkSizes]
         matchDl = [float('inf') if md < 0 else md for md in matchDl]
