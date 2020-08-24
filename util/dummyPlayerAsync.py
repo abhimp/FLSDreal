@@ -353,7 +353,7 @@ class DummyPlayer(GroupRpc):
         cb()
 
     def mBufferVideo(self, cb):
-        cprint.blue("Buffering video vNextBuffVidSegId={self.vNextBuffVidSegId}")
+#         cprint.blue("Buffering video vNextBuffVidSegId={self.vNextBuffVidSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufVidUpto = self.vNextBuffVidSegId * segDur
@@ -390,7 +390,7 @@ class DummyPlayer(GroupRpc):
             self.mGroupStart()
 
     def mBufferAudio(self, cb):
-        cprint.blue("Buffering audio vNextBuffAudSegId={self.vNextBuffAudSegId}")
+#         cprint.blue("Buffering audio vNextBuffAudSegId={self.vNextBuffAudSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufAudUpto = self.vNextBuffAudSegId * segDur
@@ -408,7 +408,7 @@ class DummyPlayer(GroupRpc):
         self.vNextBuffAudSegId += 1
 
     def mSendResponse(self, cb):
-        cprint.blue("Responding")
+#         cprint.blue("Responding")
         if self.vVidStorage.ended(self.vNextSegId):
             return cb({}, [{"eof" : True}], [], 0)
 
@@ -439,25 +439,52 @@ class DummyPlayer(GroupRpc):
         l = 0
         segs = []
         fds = []
-        for mt in ["audio", "video"]:
-            ql = qualities[mt]
+
+        nexts = []
+        for mt in ['audio', 'video']:
+            n = mt, "init", qualities[mt]
+            nexts += [n]
+            n = mt, self.vNextSegId, qualities[mt]
+            nexts += [n]
+
+        mt, segId, ql = nexts.pop(0)
+        nextThis = (None, mt, segId, ql)
+        cllObj = CallableObj(self.mAppendFds, cb, actions, segs, fds, 0, nextThis, nexts)
+        self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
+
+    @inWorker
+    def mGetFdFromVidStorage(self, cb, mt, segId, ql):
+        self.vVidStorage.getFileDescriptor(cb, mt, segId, ql)
+
+    def mAppendFds(self, cb, actions, segs, fds, tl, this, nexts, fd):
+        seg, mt, segId, ql = this
+        if segId == 'init':
             seg = {}
-            seg['seg'] = self.vNextSegId
             seg['type'] = mt
             seg['rep'] = ql
-            seg['ioff'] = l
-            seg['ilen'] = self.vVidStorage.getChunkSize(mt, 'init', ql)
-            l += seg['ilen']
-            fds += [self.vVidStorage.getFileDescriptor(mt, 'init', ql)]
-
-            seg['coff'] = l
-            seg['clen'] = self.vVidStorage.getChunkSize(mt, self.vNextSegId, ql)
-            l += seg['clen']
-            fds += [self.vVidStorage.getFileDescriptor(mt, self.vNextSegId, ql)]
+            seg['ioff'] = tl
+            seg['ilen'] = self.vVidStorage.getChunkSize(mt, segId, ql)
+            tl += seg['ilen']
+        else:
+            seg['seg'] = self.vNextSegId
+            seg['coff'] = tl
+            seg['clen'] = self.vVidStorage.getChunkSize(mt, segId, ql)
+            tl += seg['clen']
             segs += [seg]
+            seg = None
+        fds += [fd]
+        if len(nexts) == 0:
+            self.mFinishSendingResponse(cb, actions, segs, fds, tl)
+            return
 
+        mt, segId, ql = nexts.pop(0)
+        nextThis = (seg, mt, segId, ql)
+        cllObj = CallableObj(self.mAppendFds, cb, actions, segs, fds, tl, nextThis, nexts)
+        self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
+
+    @inMain
+    def mFinishSendingResponse(self, cb, actions, segs, fds, l):
         self.vNextSegId += 1
-#         cprint.red("playbackTime:", self.vNativePlaybackTime, "expectedPlaybackTime:", self.vVidHandler.expectedPlaybackTime())
         cb(actions, segs, fds, l)
         self.vSendUpdate = True
 
@@ -696,12 +723,15 @@ class DummyPlayer(GroupRpc):
             typ, segId, ql = json.loads(content)
             cprint.blue(f"Request recv: {(typ, segId, ql)}")
             ln = self.vVidStorage.getChunkSize(typ, segId, ql)
-            fd = self.vVidStorage.getFileDescriptor(typ, segId, ql)
-            self.mRunInWorkerThread(cb, fd, ln)
+            self.mGetFdFromVidStorage(CallableObj(self.mGrpMediaRequestFdCb, cb, ln), typ, segId, ql)
+#             self.mRunInWorkerThread(cb, fd, ln)
         except:
             cprint.red(getTraceBack(sys.exc_info()))
             cb(None, None, 503)
 
+    @inWorker
+    def mGrpMediaRequestFdCb(self, cb, l, fd):
+        cb(fd, l)
 
 
 #===================GROUP COMM=================

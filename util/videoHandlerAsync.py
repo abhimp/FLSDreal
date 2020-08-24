@@ -147,16 +147,18 @@ class VideoStorage():
         assert l > -1
         return l
 
-    def getFileDescriptor(self, typ, segId, ql):
+    def getFileDescriptor(self, cb, typ, segId, ql):
         if segId == 'init':
-            return self.vidHandler.getInitFileDescriptor(typ, ql)
+            fd = self.vidHandler.getInitFileDescriptor(typ, ql)
+            return cb(fd)
 
         url = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
-        return urlopen(url)
-        content = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
-        assert content is not None
-        fd = io.BytesIO(content)
-        return fd
+        fd = urlopen(url)
+        return cb(fd) #making it async if required
+#         content = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
+#         assert content is not None
+#         fd = io.BytesIO(content)
+#         return fd
 
     def getAvailableMaxQuality(self, typ, segId):
         vqls = self.getAvailability('video', segId, '*')

@@ -136,6 +136,7 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
         datas = {"actions": actions, "segs": segs}
         self.addHeaders("X-Action-Info", json.dumps(datas))
         self.send_ok_header(totalLength, "application/octet-stream")
+#         cprint.red(f"fds: {fds}")
         for fd in fds:
             shutil.copyfileobj(fd, self.wfile)
         cb()
