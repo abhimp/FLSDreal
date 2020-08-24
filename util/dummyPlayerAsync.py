@@ -272,6 +272,8 @@ class DummyPlayer(GroupRpc):
         self.vSendUpdate = False
         #==================================
 
+        self.vQoeLogFd = None
+
         self.mInit()
 
     def mInit(self):
@@ -282,6 +284,8 @@ class DummyPlayer(GroupRpc):
 #         print(self.vSetPlaybackTime, dur)
         self.vNextSegId = int(self.vSetPlaybackTime/dur)
         self.vStartSengId = self.vNextBuffVidSegId = self.vNextBuffAudSegId = self.vNextSegId
+        if self.options.logDir is not None:
+            self.vQoeLogFd = open(os.path.join(self.options.logDir, "QoE.log"), "w")
 
     def mGetJson(self):
         return self.vVidHandler.getJson()
@@ -410,6 +414,9 @@ class DummyPlayer(GroupRpc):
     def mSendResponse(self, cb):
 #         cprint.blue("Responding")
         if self.vVidStorage.ended(self.vNextSegId):
+            if self.vQoeLogFd is not None:
+                self.vQoeLogFd.close()
+                self.vQoeLogFd = None
             return cb({}, [{"eof" : True}], [], 0)
 
         actions = {}
@@ -446,6 +453,11 @@ class DummyPlayer(GroupRpc):
             nexts += [n]
             n = mt, self.vNextSegId, qualities[mt]
             nexts += [n]
+
+        if self.vQoeLogFd is not None:
+            ql = qualities['video']
+            bitrate = self.videoHandler.getBitrates('video')[ql]
+            print(self.vNativePlaybackTime, self.vNativeTotalStalled, ql, bitrate, self.nextSegId, file=self.vQoeLogFd, flush=True)
 
         mt, segId, ql = nexts.pop(0)
         nextThis = (None, mt, segId, ql)

@@ -158,6 +158,7 @@ function setDomElement() {
     videoElement.controls = true
     videoElement.autoplay = true
     //videoElement.muted = true
+    setVideoEventHandler(videoElement)
 }
 
 function setVideoEventHandler(videoElement) {
@@ -202,6 +203,7 @@ function startPlaying() {
     var curTime = new Date().getTime()
     if(stalledAt !== -1) {
         totalStalled += curTime - stalledAt
+        console.log("TotalStalled", totalStalled)
         stalledAt = -1
     }
 }
