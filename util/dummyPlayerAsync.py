@@ -284,7 +284,7 @@ class DummyPlayer(GroupRpc):
 #         print(self.vSetPlaybackTime, dur)
         self.vNextSegId = int(self.vSetPlaybackTime/dur)
         self.vStartSengId = self.vNextBuffVidSegId = self.vNextBuffAudSegId = self.vNextSegId
-        if self.options.logDir is not None:
+        if self.vOptions.logDir is not None:
             self.vQoeLogFd = open(os.path.join(self.options.logDir, "QoE.log"), "w")
 
     def mGetJson(self):
