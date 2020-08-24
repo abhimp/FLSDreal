@@ -529,7 +529,7 @@ class DummyPlayer(GroupRpc):
         downloader = peers[downloader]
         return downloader #return arbit (first) peer if none of them are idle
 
-    def groupSelectNextQuality(self, segId):
+    def mGroupSelectNextQuality(self, segId):
         typ = 'video'
         now = time.time()
         peers = list(self.vNeighbors.values()) + [self]
@@ -545,7 +545,7 @@ class DummyPlayer(GroupRpc):
             targetQl = self.vVidStorage.getAvailableMaxQuality(typ, lastSegId)
             lastSegId -= 1
 
-        assert segId - lastSegId < 4
+#         assert segId - lastSegId < 4
 
         curMaxPlaybackTime = max([n.vPlayerStat.mGetPlaybackTime() for n in peers])
         timeToDl = segId*segDur - curMaxPlaybackTime
@@ -575,7 +575,7 @@ class DummyPlayer(GroupRpc):
         matchDl = [dlLimit - c for c in chunkSizes]
         matchDl = [float('inf') if md < 0 else md for md in matchDl]
 
-        suitableQl = np.argmin(matchDl)
+        suitableQl = int(np.argmin(matchDl))
 
         if suitableQl <= targetQl:
             return suitableQl
@@ -676,7 +676,7 @@ class DummyPlayer(GroupRpc):
     def mStartGrpDownloading(self, segId):
         assert not self.vGrpDownloading
         self.vGrpDownloading = True
-        ql = 0 #FIXME select quality based on the group
+        ql = self.mGroupSelectNextQuality(segId) #FIXME select quality based on the group
         cllObj = CallableObj(self.mGrpDownloaded, segId, ql)
         url = self.vVidHandler.getChunkUrl('video', segId, ql)
         self.mFetch(url, cllObj)
