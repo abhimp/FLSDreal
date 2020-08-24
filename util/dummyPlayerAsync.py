@@ -463,6 +463,8 @@ class DummyPlayer(GroupRpc):
         self.vNativePlaybackTime = playbackTime
         self.vNativeTotalStalled = totalStalled
 
+        cprint.blue(f"CHUNK request playbackTime={playbackTime}, buffers={buffers}, totalStalled={totalStalled}, nextSegId={self.vNextSegId}")
+
         cllObj = CallableObj(self.mSendResponse, cb)
         cllObj = CallableObj(self.mBufferVideo, cllObj)
         self.mBufferAudio(cllObj) #call sequence, audio->video->response
