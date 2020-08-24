@@ -281,11 +281,10 @@ class DummyPlayer(GroupRpc):
         self.vSetPlaybackTime = self.vVidHandler.expectedPlaybackTime()
         if self.vStartPlaybackTime == -1:
             self.vStartPlaybackTime = self.vSetPlaybackTime
-#         print(self.vSetPlaybackTime, dur)
         self.vNextSegId = int(self.vSetPlaybackTime/dur)
         self.vStartSengId = self.vNextBuffVidSegId = self.vNextBuffAudSegId = self.vNextSegId
         if self.vOptions.logDir is not None:
-            self.vQoeLogFd = open(os.path.join(self.options.logDir, "QoE.log"), "w")
+            self.vQoeLogFd = open(os.path.join(self.vOptions.logDir, "QoE.log"), "w")
 
     def mGetJson(self):
         return self.vVidHandler.getJson()
@@ -456,8 +455,8 @@ class DummyPlayer(GroupRpc):
 
         if self.vQoeLogFd is not None:
             ql = qualities['video']
-            bitrate = self.videoHandler.getBitrates('video')[ql]
-            print(self.vNativePlaybackTime, self.vNativeTotalStalled, ql, bitrate, self.nextSegId, file=self.vQoeLogFd, flush=True)
+            bitrate = self.vVidHandler.getBitrates('video')[ql]
+            print(self.vNativePlaybackTime, self.vNativeTotalStalled, ql, bitrate, self.vNextSegId, file=self.vQoeLogFd, flush=True)
 
         mt, segId, ql = nexts.pop(0)
         nextThis = (None, mt, segId, ql)
