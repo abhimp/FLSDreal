@@ -353,6 +353,7 @@ class DummyPlayer(GroupRpc):
         cb()
 
     def mBufferVideo(self, cb):
+        cprint.blue("Buffering video vNextBuffVidSegId={self.vNextBuffVidSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufVidUpto = self.vNextBuffVidSegId * segDur
@@ -389,6 +390,7 @@ class DummyPlayer(GroupRpc):
             self.mGroupStart()
 
     def mBufferAudio(self, cb):
+        cprint.blue("Buffering audio vNextBuffAudSegId={self.vNextBuffAudSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufAudUpto = self.vNextBuffAudSegId * segDur
@@ -406,6 +408,7 @@ class DummyPlayer(GroupRpc):
         self.vNextBuffAudSegId += 1
 
     def mSendResponse(self, cb):
+        cprint.blue("Responding")
         if self.vVidStorage.ended(self.vNextSegId):
             return cb({}, [{"eof" : True}], [], 0)
 
