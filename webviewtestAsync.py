@@ -229,7 +229,7 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
             dummyPlayer = prvtDt.get("dummyPlayer", None)
             cb = CallableObj(self.sendResponseFromFd, cb)
             clientIp = self.client_address[0]
-            self.callFuncInMainThread(dummyPlayer.mGrpMediaRequest, cb, content)
+            self.callFuncInMainThread(dummyPlayer.mGroupMediaRequest, cb, content)
 
         else:
             cb()

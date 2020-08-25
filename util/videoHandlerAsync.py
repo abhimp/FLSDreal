@@ -83,6 +83,7 @@ class VideoStorage():
                     'typ_ql': {}, #[(typ, ql)] = segs
                     'typ_segId': {} #[(typ, segId)] = qls
                 }
+        self.remoteAvailability = {} #[(typ, segId)] = qls
         self.dlHistory = {} #[typ] = ((segId, ql), clen, sttime, edtime)
         self.eloop = eloop
         self.vidHandler = vidHandler
@@ -144,6 +145,9 @@ class VideoStorage():
         self.availability["typ_ql"].setdefault((typ, ql), set()).add(segId)
         self.availability["typ_segId"].setdefault((typ, segId), set()).add(ql)
 
+    def setRemoteAvailability(self, typ, segId, ql):
+        self.remoteAvailability.setdefault((typ, segId), set()).add(ql)
+
     def getChunkSize(self, typ, segId, ql):
         if segId == 'init':
             return self.vidHandler.getInitSize(typ, ql)
@@ -169,6 +173,12 @@ class VideoStorage():
         if len(vqls) == 0:
             return -1
         return max(vqls)
+
+    def getOverAllAvailability(self, typ, segId):
+        lqls = self.availability['typ_segId'].get((typ, segId), set())
+        rqls = self.remoteAvailability.get((typ, segId), set())
+        qls = lqls | rqls
+        return list(qls)
 
     def getDownloadHistory(self, typ):
         return self.dlHistory.get(typ, [])[:]
