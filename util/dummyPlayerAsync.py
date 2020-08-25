@@ -25,60 +25,6 @@ def assertLog(cond, *k):
         cprint.red("Assert failed:", *k)
     assert cond
 
-class AutoUpdateObject():
-    def __init__(self, callback, onUpdateCB=None):
-        self.__int_values = {}
-        self.__int_cb = callback
-        self.__int_autoCommit = False
-        self.__int_readonly = False
-        self.__int_onUpdateCB = onUpdateCB
-        self.__int_changed = set()
-
-    def __getattr__(self, name):
-        if name.startswith("__int_") or name.startswith("_AutoUpdateObject"):
-            raise AttributeError(f"{name} not found")
-        if name not in self.__int_values:
-            raise AttributeError(f"{name} not found")
-        return self.__int_values[name]
-
-    def __setattr__(self, name, val):
-        if name.startswith("__int_") or name.startswith("_AutoUpdateObject"):
-            super().__setattr__(name, val)
-            return
-        if self.__int_readonly:
-            raise PermissionError("Readonly object")
-        self.__int_values[name] = val
-        self.__int_changed.add(name)
-        if self.__int_autoCommit:
-            self.commit()
-        if self.__int_onUpdateCB and callable(self.__int_onUpdateCB):
-            self.__int_onUpdateCB(name)
-
-    def update(self, kwargs):
-        self.__int_values.update(kwargs)
-
-    def setAutoCommit(self, autoCommit = True):
-        if self.__int_cb is not None and callable(self.__int_cb):
-            return
-        self.__int_autoCommit = autoCommit
-
-    def setReadOnly(self, readonly=True):
-        self.__int_readonly = readonly
-
-    def commit(self):
-        if self.__int_readonly:
-            raise PermissionError("Readonly object")
-        if self.__int_cb is None or not callable(self.__int_cb):
-            return
-        keys = self.__int_changed.copy()
-        self.__int_changed.clear()
-        self.__int_cb({x: self.__int_values[x] for x in keys})
-
-    def getCurrentStatus(self):
-        return self.__int_values
-
-    def getCb(self):
-        return self.__int_cb
 
 def toDict(**kw):
     return kw
@@ -165,7 +111,19 @@ class GroupRpc:
             ret = 200, resp.content, resp.headers, st, time.time()
         else:
             ret = resp.status_code, None, resp.headers, st, time.time()
-        cb(*ret)
+        self.mRunInMainThread(cb, *ret)
+
+    @inWorker
+    def mPost(self, url, cb, data):
+        st = time.time()
+        ret = None
+#         resp = requests.get(url)
+        resp = requests.post(url, data = data)
+        if resp.status_code == 200:
+            ret = 200, resp.content, resp.headers, st, time.time()
+        else:
+            ret = resp.status_code, None, resp.headers, st, time.time()
+        self.mRunInMainThread(cb, *ret)
 
     def mGroupRecvRpc(self, cb, content):
         rpc = None
@@ -344,7 +302,7 @@ class DummyPlayer(GroupRpc):
 #                 for m,sm in enumerate(bitrates)])
         return M
 
-    @inMain
+#     @inMain
     def mBuffered(self, cb, typ, segId, ql, status, resp, headers, st, ed):
         assert status == 200
         headers = dict(headers)
@@ -468,7 +426,7 @@ class DummyPlayer(GroupRpc):
         cllObj = CallableObj(self.mAppendFds, cb, actions, segs, fds, 0, nextThis, nexts)
         self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
 
-    @inWorker
+#     @inWorker
     def mGetFdFromVidStorage(self, cb, mt, segId, ql):
         self.vVidStorage.getFileDescriptor(cb, mt, segId, ql)
 
@@ -498,7 +456,7 @@ class DummyPlayer(GroupRpc):
         cllObj = CallableObj(self.mAppendFds, cb, actions, segs, fds, tl, nextThis, nexts)
         self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
 
-    @inMain
+#     @inMain
     def mFinishSendingResponse(self, cb, actions, segs, fds, l):
         self.vNextSegId += 1
         cb(actions, segs, fds, l)
@@ -534,7 +492,7 @@ class DummyPlayer(GroupRpc):
         peers = list(self.vNeighbors.values()) + [self]
         gids = [p.vMyGid for p in peers]
         now = time.time()
-        idleTimes = [0 if p.vIdleFrom is None else (now - p.vIdleFrom) for p in peers]
+        idleTimes = [0 if p.vIdleFrom is None or (p == self and self.vGroupDownloading) else (now - p.vIdleFrom) for p in peers]
         workingTimes = [0 if p.vWorkingFrom is None else (now - p.vWorkingFrom) for p in peers]
         cprint.orange(f"gids: {gids} idleTimes: {idleTimes} workingTimes: {workingTimes}")
         idleTimes = np.array(idleTimes)
@@ -619,19 +577,22 @@ class DummyPlayer(GroupRpc):
             self.vIAmStarter = True
             cprint.red("Group started as self group")
             return
-        self.mRunInWorkerThread(self.mGroupStartInWorker)
-
-    def mGroupStartInWorker(self):
         rpc = (self.vOptions.groupPort, self.vOptions.neighbourAddress) #TODO add more to send more info
-        resp = requests.post("http://" + self.vOptions.neighbourAddress + "/groupjoin", data = json.dumps(rpc).encode())
-        ret = None
-        if resp.status_code == 200:
-            ret = resp.content
-        else:
-            return
-        self.mGroupStartRecvReply(ret)
+        self.mPost("http://" + self.vOptions.neighbourAddress + "/groupjoin", self.mGroupStartRecvReply, data = json.dumps(rpc).encode())
+#         self.mRunInWorkerThread(self.mGroupStartInWorker)
 
-    def mGroupStartRecvReply(self, reply):
+#     def mGroupStartInWorker(self):
+#         rpc = (self.vOptions.groupPort, self.vOptions.neighbourAddress) #TODO add more to send more info
+#         resp = requests.post("http://" + self.vOptions.neighbourAddress + "/groupjoin", data = json.dumps(rpc).encode())
+#         ret = None
+#         if resp.status_code == 200:
+#             ret = resp.content
+#         else:
+#             return
+#         self.mGroupStartRecvReply(ret)
+
+    def mGroupStartRecvReply(self, status, reply, headers, st, ed):
+        if status != 200: return;
         assert reply is not None and len(reply) > 0
         reply = json.loads(reply)
         if reply[0] == "NotStarted":
@@ -680,7 +641,7 @@ class DummyPlayer(GroupRpc):
         self.mBroadcast(self.mGroupPeerJoined, peerAddr)
         cb(("accepted", peerAddr, nInfo))
 
-    @inWorker
+#     @inWorker
     def mBroadcast(self, func, *a, **b):
 #         cprint.cyan(f"broadcasting {func}")
         funcname = func.__name__
@@ -688,7 +649,7 @@ class DummyPlayer(GroupRpc):
             func = peer.mGetRpcObj(funcname)
             func(self.vMyGid, *a, **b)
         func = getattr(self, funcname)
-        self.mRunInMainThread(func, self.vMyGid, *a, **b) #need to run in main thread
+        func(self.vMyGid, *a, **b) #need to run in main thread
 
     def mAddToGroupDownloadQueue(self, segId):
         self.vGroupDownloadQueue.append(segId)
@@ -696,7 +657,7 @@ class DummyPlayer(GroupRpc):
         if not self.vGroupDownloading:
             self.mStartGrpDownloading(segId)
 
-    @inMain
+#     @inMain
     def mStartGrpDownloading(self, recurs=False):
         if not recurs: #another bad hack
             assert not self.vGroupDownloading
@@ -714,7 +675,7 @@ class DummyPlayer(GroupRpc):
         self.mBroadcast(self.mGroupInformDownloading, segId, ql)
         self.mGroupSelectNextLeader() # the entry point
 
-    @inMain
+#     @inMain
     def mGroupDownloaded(self, segId, ql, status, resp, headers, st, ed):
         headers = dict(headers)
         dt = headers.get('X-Chunk-Sizes', "{}")
@@ -761,7 +722,7 @@ class DummyPlayer(GroupRpc):
             cprint.red(getTraceBack(sys.exc_info()))
             cb(None, None, 503)
 
-    @inWorker
+#     @inWorker
     def mGroupMediaRequestFdCb(self, cb, l, fd):
         cb(fd, l)
 

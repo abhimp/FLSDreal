@@ -173,6 +173,12 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
     def callFuncInMainThread(self, func, cb, *a, **b):
         self.server.eloop.addTask(func, cb, *a, **b)
 
+    def callFuncInWorkerThread(self, func, cb, *a, **b):
+        if self.server.eloop.amIMainThread():
+            self.server.eloop.runInWorker(func, cb, *a, **b)
+        else:
+            self.callFuncInMainThread(self.server.eloop.runInWorker, func, cb, *a, **b)
+
     def do_cb_POST(self, cb):
         prvtDt = self.server.privateData
         if self.path.startswith("/init"):
@@ -190,7 +196,7 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
             buffered = json.loads(self.headers.get("X-buffer"))
             totalStalled = float(self.headers.get("X-Stall", '0'))
             dummyPlayer = prvtDt.get("dummyPlayer", None)
-            cb = CallableObj(self.sendNextSeg, cb)
+            cb = CallableObj(self.callFuncInWorkerThread, self.sendNextSeg, cb)
             self.callFuncInMainThread(dummyPlayer.mGetNextChunks, cb, playbackTime, buffered, totalStalled)
 #             cllObj = CallableObj(self.sendNextSeg, cb)
 #             self.server.eloop.addTask(dummyPlayer.getNextChunks, playbackTime, buffered, totalStalled, cllObj)
@@ -209,7 +215,7 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
                 return cb()
             content = self.rfile.read(contentlen).decode()
             dummyPlayer = prvtDt.get("dummyPlayer", None)
-            cb = CallableObj(self.sendResponse, cb)
+            cb = CallableObj(self.callFuncInWorkerThread, self.sendResponse, cb)
             self.callFuncInMainThread(dummyPlayer.mGroupRecvRpc, cb, content)
 #             DummyPlayer.groupRecv(content, cb)
 
@@ -219,7 +225,7 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
                 return cb()
             content = self.rfile.read(contentlen).decode()
             dummyPlayer = prvtDt.get("dummyPlayer", None)
-            cb = CallableObj(self.sendResponse, cb)
+            cb = CallableObj(self.callFuncInWorkerThread, self.sendResponse, cb)
             clientIp = self.client_address[0]
             self.callFuncInMainThread(dummyPlayer.mGroupJoin, cb, clientIp, content)
 
@@ -229,7 +235,7 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
                 return cb()
             content = self.rfile.read(contentlen).decode()
             dummyPlayer = prvtDt.get("dummyPlayer", None)
-            cb = CallableObj(self.sendResponseFromFd, cb)
+            cb = CallableObj(self.callFuncInWorkerThread, self.sendResponseFromFd, cb)
             clientIp = self.client_address[0]
             self.callFuncInMainThread(dummyPlayer.mGroupMediaRequest, cb, content)
 

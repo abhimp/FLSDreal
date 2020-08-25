@@ -165,7 +165,7 @@ class VideoStorage():
 
         url = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
         fd = urlopen(url)
-        return cb(fd) #making it async if required
+        self.eloop.addTask(cb, fd) #making it async if required
 #         content = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
 #         assert content is not None
 #         fd = io.BytesIO(content)
