@@ -162,10 +162,16 @@ class VideoStorage():
         if segId == 'init':
             fd = self.vidHandler.getInitFileDescriptor(typ, ql)
             return cb(fd)
+        self.eloop.runInWorker(self.getFileDescriptorFromWorker, cb, typ, segId, ql)
 
+    def getFileDescriptorFromWorker(self, cb, typ, segId, ql):
         url = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
-        fd = urlopen(url)
-        self.eloop.addTask(cb, fd) #making it async if required
+        try:
+            fd = urlopen(url)
+            self.eloop.addTask(cb, fd) #making it async if required
+        except:
+            fd = io.BytesIO(b"Internal error")
+            self.eloop.addTask(cb, fd)
 #         content = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
 #         assert content is not None
 #         fd = io.BytesIO(content)

@@ -34,10 +34,10 @@ def inWorker(func):
         ref.mRunInWorkerThread(func, ref, *a, **b)
     return wrapperRunInWorker
 
-def inMain(func):
-    def wrapperRunInMain(ref, *a, **b):
-        ref.mRunInMainThread(func, ref, *a, **b)
-    return wrapperRunInMain
+# def inMain(func):
+#     def wrapperRunInMain(ref, *a, **b):
+#         ref.mRunInMainThread(func, ref, *a, **b)
+#     return wrapperRunInMain
 
 class PlayerStat():
     def __init__(self):
@@ -424,7 +424,8 @@ class DummyPlayer(GroupRpc):
         mt, segId, ql = nexts.pop(0)
         nextThis = (None, mt, segId, ql)
         cllObj = CallableObj(self.mAppendFds, cb, actions, segs, fds, 0, nextThis, nexts)
-        self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
+        self.vVidStorage.getFileDescriptor(cb, mt, segId, ql)
+#         self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
 
 #     @inWorker
     def mGetFdFromVidStorage(self, cb, mt, segId, ql):
