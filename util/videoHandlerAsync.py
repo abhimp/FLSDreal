@@ -162,11 +162,10 @@ class VideoStorage():
         if segId == 'init':
             fd = self.vidHandler.getInitFileDescriptor(typ, ql)
             return cb(fd)
-#         self.eloop.runInWorker(self.getFileDescriptorFromWorker, cb, typ, segId, ql)
-        self.getFileDescriptorFromWorker( cb, typ, segId, ql)
-
-    def getFileDescriptorFromWorker(self, cb, typ, segId, ql):
         url = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
+        self.eloop.runInWorker(self.getFileDescriptorFromWorker, cb, url)
+
+    def getFileDescriptorFromWorker(self, cb, url):
         try:
             fd = urlopen(url)
             self.eloop.addTask(cb, fd) #making it async if required
