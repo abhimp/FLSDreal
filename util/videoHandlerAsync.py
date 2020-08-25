@@ -148,6 +148,9 @@ class VideoStorage():
     def setRemoteAvailability(self, typ, segId, ql):
         self.remoteAvailability.setdefault((typ, segId), set()).add(ql)
 
+    def getRemoteAvailability(self, typ, segId):
+        return list(self.remoteAvailability.get((typ, segId), set()))
+
     def getChunkSize(self, typ, segId, ql):
         if segId == 'init':
             return self.vidHandler.getInitSize(typ, ql)

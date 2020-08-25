@@ -380,6 +380,9 @@ class DummyPlayer(GroupRpc):
             if bufVidLen > (2*segDur):
                 return cb()
             else:
+                remAvailability = self.vVidStorage.getOverAllAvailability('video', self.vNextBuffVidSegId)
+                if len(remAvailability) and 0 in remAvailability: #if someone already downloading in lowest quality, I don't have to
+                    return cb()
                 cprint.blue(f"{self.vMyGid}: {self.vNextBuffVidSegId} fallbacking, groupstarted: {self.vGroupStartedSegId}")
                 ql = 0 #fallback
         else:
@@ -761,7 +764,7 @@ class DummyPlayer(GroupRpc):
 
 #===================GROUP COMM=================
     def mGroupInformDownloaded(self, srcGid, segId, ql, dt):
-        cprint.green(f"{self.vMyGid}: {gid} is downloaded seg {segId} in {ql}")
+        cprint.green(f"{self.vMyGid}: {srcGid} is downloaded seg {segId} in {ql}")
         if srcGid == self.vMyGid:
             return
         peer = self.vNeighbors[srcGid]
@@ -815,4 +818,5 @@ class DummyPlayer(GroupRpc):
 
     def mGroupInformDownloading(self, srcGid, segId, ql):
 #         if srcGid == self.vMyGid: return
+        cprint.green(f"{self.vMyGid}: {srcGid} is downloading seg {segId} in {ql}")
         self.vVidStorage.setRemoteAvailability('video', segId, ql)
