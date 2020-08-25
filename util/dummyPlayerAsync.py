@@ -180,6 +180,7 @@ class GroupRpc:
             ret = resp.status_code, None, resp.headers, st, time.time()
         cb(*ret)
 
+    @inMainSame
     def mGroupRecvRpc(self, cb, content):
         rpc = None
         try:
@@ -715,7 +716,7 @@ class DummyPlayer(GroupRpc):
         func = getattr(self, funcname)
         func(self.vMyGid, *a, **b) #need to run in main thread and immediately
 
-    @inMain
+    @inMainSame
     def mAddToGroupDownloadQueue(self, segId):
         self.mBroadcast(self.mGroupSetIdle, False)
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(segId):
@@ -736,7 +737,7 @@ class DummyPlayer(GroupRpc):
         self.mFetch(url, cllObj)
         self.mBroadcast(self.mGroupInformDownloading, segId, ql)
 
-    @inMain
+    @inMainSame
     def mGroupDownloaded(self, segId, ql, status, resp, headers, st, ed):
         headers = dict(headers)
         dt = headers.get('X-Chunk-Sizes', "{}")
@@ -799,6 +800,7 @@ class DummyPlayer(GroupRpc):
         self.vVidStorage.storeRemoteChunk('video', segId, ql, peer.vAddress)
         self.vVidStorage.updateChunkSizes(dt)
 
+    @inMainSame
     def mGroupSetDownloader(self, srcGid, gid, segId):
         cprint.green(f"{self.vMyGid}: {gid} is supposed to download seg {segId}")
         if not self.vGroupStarted:
@@ -811,6 +813,7 @@ class DummyPlayer(GroupRpc):
         self.mAddToGroupDownloadQueue(segId)
         self.mGroupSelectNextLeader()
 
+    @inMainSame
     def mGroupSetIdle(self, srcGid, status):
         peer = self
 #         cprint.orange(f"status from {srcGid}: {status}")
