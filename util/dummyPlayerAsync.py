@@ -10,6 +10,7 @@ import numpy as np
 # from urllib.request import urlopen
 from urllib.request import urljoin
 import requests
+import queue
 
 
 from util.videoHandlerAsync import VideoHandler
@@ -93,6 +94,11 @@ def inMain(func):
         ref.mRunInMainThread(func, ref, *a, **b)
     return wrapperRunInMain
 
+def inMainSame(func):
+    def wrapperRunInMainSame(ref, *a, **b):
+        ref.mRunInMainThreadSame(func, ref, *a, **b)
+    return wrapperRunInMainSame
+
 class PlayerStat():
     def __init__(self):
         self.vNativePlaybackTime = 0 # seconds
@@ -145,10 +151,17 @@ class GroupRpc:
 
         self.vPlayerStat = PlayerStat()
 
+        self.vRpcQueue = None #queue.Queue()
+
+    def mRunInMainThreadSame(self, func, *a, **b):
+        if self.vEloop.amIMainThread():
+            return func(*a, **b)
+        self.mRunInMainThread(func, *a, **b)
 
     def mRunInMainThread(self, func, *a, **b):
         self.vEloop.addTask(func, *a, **b)
 
+#     def mRunInWorkerThreadSame(self, func, *a, **b):
     def mRunInWorkerThread(self, func, *a, **b):
         if self.vEloop.amIMainThread():
             self.vEloop.runInWorker(func, *a, **b)
@@ -198,40 +211,49 @@ class GroupRpc:
         self.mRunInMainThread(cb, toDict(res="error", error=error))
 
     @inWorker
-    def mGroupSendRpc(self, cb, func, *a, **b): #blocking, so run in worker
+    def mGroupRunRpcHandler(self):
         assert self.vAddress is not None
-        if callable(func):
-            func = func.__name__
-        url = self.vAddress + "/groupcomm"
-        rpc = {"func": func, "args": a, "kwargs": b}
-        resp = requests.post(url, data = json.dumps(rpc).encode())
-        ret = None
-        if resp.status_code == 200:
-            ret = resp.content
-        if ret is not None:
-            try:
-                ret = json.loads(ret.decode())
-            except:
-                ret = None
+        self.vRpcQueue = queue.Queue()
+        while True:
+            func, cb, a, b = self.vRpcQueue.get()
+            if func == "exit":
+                break;
 
-        if ret is not None:
-            res = ret.get("res", None)
-            if res == "ok":
-                ret = ret.get("ret")
-            elif res == "error":
-                cprint.red("RPC res:", ret.get("error"))
-                return
-            else:
-                cprint.red("RPC error unknow")
-                return
-        cb(ret) #cb should run in main thread
+            if callable(func):
+                func = func.__name__
+            url = self.vAddress + "/groupcomm"
+            rpc = {"func": func, "args": a, "kwargs": b}
+            resp = requests.post(url, data = json.dumps(rpc).encode())
+            ret = None
+            if resp.status_code == 200:
+                ret = resp.content
+            if ret is not None:
+                try:
+                    ret = json.loads(ret.decode())
+                except:
+                    ret = None
 
-    def mGetRpcObj(self, name, cb=None):
-        assert self.vAddress is not None
-        if cb is None:
-            cb = self.mNoop
-        cllObj = CallableObj(self.mGroupSendRpc, cb, name)
-        return cllObj
+            if ret is not None:
+                res = ret.get("res", None)
+                if res == "ok":
+                    ret = ret.get("ret")
+                elif res == "error":
+                    cprint.red("RPC res:", ret.get("error"))
+                    continue
+                else:
+                    cprint.red("RPC error unknow")
+                    continue
+            cb(ret) #cb should run in main thread
+
+    def mGroupSendRpc(self, func, *a, **b): #blocking, so run in worker
+        self.vRpcQueue.put((func, self.mNoop, a, b))
+
+#     def mGetRpcObj(self, name, cb=None):
+#         assert self.vAddress is not None
+#         if cb is None:
+#             cb = self.mNoop
+#         cllObj = CallableObj(self.mGroupSendRpc, cb, name)
+#         return cllObj
 
     def mNoop(self, *a, **b):
         pass
@@ -658,6 +680,7 @@ class DummyPlayer(GroupRpc):
                 peer.vIdleFrom = None
                 peer.vWorkingFrom = time.time()
             self.vNeighbors[x] = peer
+            peer.mGroupRunRpcHandler()
         self.vGroupInited = True
         cprint.red(f"Group started started {len(self.vNeighbors)} neighbors")
 
@@ -680,17 +703,21 @@ class DummyPlayer(GroupRpc):
         self.mBroadcast(self.mGroupPeerJoined, peerAddr)
         cb(("accepted", peerAddr, nInfo))
 
-    @inWorker
+    def mPlaybackEnded(self):
+        for gid,peer in self.vNeighbors.items():
+            peer.mGroupSendRpc("exit")
+
     def mBroadcast(self, func, *a, **b):
 #         cprint.cyan(f"broadcasting {func}")
         funcname = func.__name__
         for gid,peer in self.vNeighbors.items():
-            func = peer.mGetRpcObj(funcname)
-            func(self.vMyGid, *a, **b)
+            peer.mGroupSendRpc(funcname, self.vMyGid, *a, **b)
         func = getattr(self, funcname)
-        self.mRunInMainThread(func, self.vMyGid, *a, **b) #need to run in main thread
+        func(self.vMyGid, *a, **b) #need to run in main thread and immediately
 
+    @inMain
     def mAddToGroupDownloadQueue(self, segId):
+        self.mBroadcast(self.mGroupSetIdle, False)
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(segId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(segId)
             self.vEloop.setTimeout(wait, self.mAddToGroupDownloadQueue, segId)
@@ -698,10 +725,8 @@ class DummyPlayer(GroupRpc):
         if self.vGroupDownloading:
             self.vGroupDownloadQueue.append(segId)
             return
-        self.mBroadcast(self.mGroupSetIdle, False)
         self.mStartGrpDownloading(segId)
 
-    @inMain
     def mStartGrpDownloading(self, segId):
         assert not self.vGroupDownloading
         self.vGroupDownloading = True
@@ -808,6 +833,7 @@ class DummyPlayer(GroupRpc):
         peer = GroupRpc(self.vEloop)
         peer.vMyGid = peerAddr
         peer.vAddress = "http://" + peerAddr
+        peer.mGroupRunRpcHandler()
 #         self.vNeighbors[peerAddr] = peer
         self.vNeighbors = dict(list(self.vNeighbors.items()) + [(peerAddr, peer)]) #complication to avoid modification while iteration
 
