@@ -314,7 +314,7 @@ class DummyPlayer(GroupRpc):
         cb()
 
     def mBufferVideo(self, cb):
-#         cprint.blue("Buffering video vNextBuffVidSegId={self.vNextBuffVidSegId}")
+        cprint.blue(f"Buffering video vNextBuffVidSegId={self.vNextBuffVidSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufVidUpto = self.vNextBuffVidSegId * segDur
@@ -354,7 +354,7 @@ class DummyPlayer(GroupRpc):
             self.mGroupStart()
 
     def mBufferAudio(self, cb):
-#         cprint.blue("Buffering audio vNextBuffAudSegId={self.vNextBuffAudSegId}")
+        cprint.blue(f"Buffering audio vNextBuffAudSegId={self.vNextBuffAudSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufAudUpto = self.vNextBuffAudSegId * segDur
@@ -372,7 +372,7 @@ class DummyPlayer(GroupRpc):
         self.vNextBuffAudSegId += 1
 
     def mSendResponse(self, cb):
-#         cprint.blue("Responding")
+        cprint.blue("Responding")
         if self.vVidStorage.ended(self.vNextSegId):
             if self.vQoeLogFd is not None:
                 self.vQoeLogFd.close()
@@ -424,7 +424,7 @@ class DummyPlayer(GroupRpc):
         mt, segId, ql = nexts.pop(0)
         nextThis = (None, mt, segId, ql)
         cllObj = CallableObj(self.mAppendFds, cb, actions, segs, fds, 0, nextThis, nexts)
-        self.vVidStorage.getFileDescriptor(cb, mt, segId, ql)
+        self.vVidStorage.getFileDescriptor(cllObj, mt, segId, ql)
 #         self.mGetFdFromVidStorage(cllObj, mt, segId, ql)
 
 #     @inWorker
@@ -468,7 +468,7 @@ class DummyPlayer(GroupRpc):
         self.vNativePlaybackTime = playbackTime
         self.vNativeTotalStalled = totalStalled
 
-#         cprint.blue(f"CHUNK request playbackTime={playbackTime}, buffers={buffers}, totalStalled={totalStalled}, nextSegId={self.vNextSegId}")
+        cprint.blue(f"CHUNK request playbackTime={playbackTime}, buffers={buffers}, totalStalled={totalStalled}, nextSegId={self.vNextSegId}")
 
         cllObj = CallableObj(self.mSendResponse, cb)
         cllObj = CallableObj(self.mBufferVideo, cllObj)
