@@ -151,7 +151,7 @@ class GroupRpc:
 
         self.vPlayerStat = PlayerStat()
 
-        self.vRpcQueue = None #queue.Queue()
+        self.vRpcQueue = queue.Queue()
 
     def mRunInMainThreadSame(self, func, *a, **b):
         if self.vEloop.amIMainThread():
@@ -213,7 +213,7 @@ class GroupRpc:
     @inWorker
     def mGroupRunRpcHandler(self):
         assert self.vAddress is not None
-        self.vRpcQueue = queue.Queue()
+#         self.vRpcQueue = queue.Queue()
         while True:
             func, cb, a, b = self.vRpcQueue.get()
             if func == "exit":
