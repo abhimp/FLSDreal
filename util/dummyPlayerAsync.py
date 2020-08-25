@@ -303,7 +303,7 @@ class DummyPlayer(GroupRpc):
 
         p = self.vVidHandler.getSegmentDur()
         bufUpto = p*segId #it is safe to assume that segment upto segId is already in the buffer
-        buflen = bufUpto - self.vNativePlaybackTime
+        bufLen = bufUpto - self.vNativePlaybackTime
 
         (segId, ql), clen, sttime, entime = chunkHistory[-1]
         lastThroughput = clen * 8 / (entime - sttime) # bps
@@ -313,7 +313,7 @@ class DummyPlayer(GroupRpc):
         vms = [math.log(sm/SM) for sm in bitrates]
 
         lastM = ql #last bitrateindex
-        Q = buflen/p
+        Q = bufLen/p
         Qmax = self.vMinBufferLength/p
         ts = self.vNativePlaybackTime - self.vStartPlaybackTime
         te = ts + 1 # bad hack, it should have been video.duration - playbacktime
@@ -459,7 +459,9 @@ class DummyPlayer(GroupRpc):
         if self.vQoeLogFd is not None:
             ql = qualities['video']
             bitrate = self.vVidHandler.getBitrates('video')[ql]
-            print(self.vNativePlaybackTime, self.vNativeTotalStalled, ql, bitrate, self.vNextSegId, file=self.vQoeLogFd, flush=True)
+            curNextSeg = min(self.vNextBuffVidSegId, self.vNextBuffAudSegId)
+            bufLen = (curNextSeg * segDur) - self.vNativePlaybackTime
+            print(self.vNativePlaybackTime, self.vNativeTotalStalled, ql, bitrate, self.vNextSegId, bufLen, file=self.vQoeLogFd, flush=True)
 
         mt, segId, ql = nexts.pop(0)
         nextThis = (None, mt, segId, ql)
