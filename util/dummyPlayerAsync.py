@@ -504,7 +504,7 @@ class DummyPlayer(GroupRpc):
         self.vNativePlaybackTime = playbackTime
         self.vNativeTotalStalled = totalStalled
 
-        cprint.blue(f"CHUNK request playbackTime={playbackTime}, buffers={buffers}, totalStalled={totalStalled}, nextSegId={self.vNextSegId}")
+#         cprint.blue(f"CHUNK request playbackTime={playbackTime}, buffers={buffers}, totalStalled={totalStalled}, nextSegId={self.vNextSegId}")
 
         cllObj = CallableObj(self.mSendResponse, cb)
         cllObj = CallableObj(self.mBufferVideo, cllObj)
@@ -761,6 +761,7 @@ class DummyPlayer(GroupRpc):
 
 #===================GROUP COMM=================
     def mGroupInformDownloaded(self, srcGid, segId, ql, dt):
+        cprint.green(f"{self.vMyGid}: {gid} is downloaded seg {segId} in {ql}")
         if srcGid == self.vMyGid:
             return
         peer = self.vNeighbors[srcGid]
