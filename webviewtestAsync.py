@@ -197,8 +197,8 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
 
         elif self.path.startswith('/playbackEnded'):
             cprint.red("playbackEnded")
-            dummyPlayer = prvtDt.get("dummyPlayer", None)
-            dummyPlayer.mPlaybackEnded()
+#             dummyPlayer = prvtDt.get("dummyPlayer", None)
+#             dummyPlayer.mPlaybackEnded()
             self.server.eloop.addTask(self.server.shutdown)
             self.send_ok_header(0)
             cb()
