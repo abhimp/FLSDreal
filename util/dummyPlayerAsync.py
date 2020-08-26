@@ -214,6 +214,7 @@ class DummyPlayer(GroupRpc):
         self.vNextBuffAudSegId = 0
         self.vStartSengId = -1
         self.vMinBufferLength = 30
+        self.vBuffering = False
 
 
         #========Group Info================
@@ -304,6 +305,7 @@ class DummyPlayer(GroupRpc):
 
 #     @inMain
     def mBuffered(self, cb, typ, segId, ql, status, resp, headers, st, ed):
+        self.vBuffering = False
         assert status == 200
         headers = dict(headers)
         dt = headers.get('X-Chunk-Sizes', "{}")
@@ -314,6 +316,9 @@ class DummyPlayer(GroupRpc):
         cb()
 
     def mBufferVideo(self, cb):
+        if self.vBuffering:
+            return cb()
+        self.vBuffering = True
 #         cprint.blue(f"Buffering video vNextBuffVidSegId={self.vNextBuffVidSegId}")
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
@@ -470,9 +475,13 @@ class DummyPlayer(GroupRpc):
 
         cprint.blue(f"CHUNK request playbackTime={playbackTime}, buffers={buffers}, totalStalled={totalStalled}, nextSegId={self.vNextSegId}")
 
-        cllObj = CallableObj(self.mSendResponse, cb)
-        cllObj = CallableObj(self.mBufferVideo, cllObj)
-        self.mBufferAudio(cllObj) #call sequence, audio->video->response
+#         cllObj = CallableObj(self.mNoop)
+        cllObj = CallableObj(self.mBufferVideo, self.mNoop)
+        cllObj = CallableObj(self.mBufferAudio, cllObj)
+        self.mRunInMainThread(cllObj)
+#         self.mBufferAudio(cllObj) #call sequence, audio->video->response
+
+        self.mSendResponse(cb)
 
         if not self.vSendUpdate: return
         self.vSendUpdate = False
