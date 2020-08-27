@@ -74,8 +74,8 @@ class EventLoop():
         numIdle = self.numIdleWorker
         self.workerSem.release()
         if numIdle == 0 and self.numWorkers < self.maxWorkers:
-            worker = Worker(self.workerFinishedTask, self.workerExited)
             self.numWorkers += 1
+            worker = Worker(self.workerFinishedTask, self.workerExited)
             print("numWorkers:", self.numWorkers)
         self.WORKER_TASK_QUEUE.put((cb, a, b))
 
@@ -86,12 +86,17 @@ class EventLoop():
 
         self.workerSem.acquire()
         self.numIdleWorker += 1
+        numIdle = self.numIdleWorker
         self.workerSem.release()
+        if self.logFile is not None: cprint.red(f"Waiting for task {numIdle}/{self.numWorkers}", file=self.logFile)
         task = self.WORKER_TASK_QUEUE.get()
         worker.task = task
         self.workerSem.acquire()
         self.numIdleWorker -= 1
+        numIdle = self.numIdleWorker
         self.workerSem.release()
+        self.workerSem.release()
+        if self.logFile is not None: cprint.red(f"Waiting for task {numIdle}/{self.numWorkers}, exe: {task[0]}", file=self.logFile)
 
     def workerExited(self, worker):
         assert self.origThread is not None
