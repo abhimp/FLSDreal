@@ -142,12 +142,13 @@ class GroupRpc:
         if not callable(func):
             return self.mGroupRpcResponse(cb, error=f"{func} not found")
 
-        try:
-            ret = func(*a, **b)
-        except:
-            return self.mGroupRpcResponse(cb, error=getTraceBack(sys.exc_info())) #Sending exception
+        self.mRunInMainThread(func, *a, **b)
+#         try:
+#             ret = func(*a, **b)
+#         except:
+#             return self.mGroupRpcResponse(cb, error=getTraceBack(sys.exc_info())) #Sending exception
 
-        self.mGroupRpcResponse(cb, ret)
+        self.mGroupRpcResponse(cb)
 
     def mGroupRpcResponse(self, cb, ret = None, error=None):
         if error is None:

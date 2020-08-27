@@ -45,6 +45,7 @@ class EventLoop():
         self.EV_QUEUE = queue.Queue()
         self.TIMER_QUEUE = queue.PriorityQueue()
         self.WORKER_TASK_QUEUE = queue.Queue()
+        self.__running = False
 #         self.workerGroupIdle = []
         self.workerGroupTerminated = []
         self.maxWorkers = maxWorkers
@@ -122,9 +123,14 @@ class EventLoop():
         for worker in self.workerGroupTerminated:
             worker.thread.join()
 
+    def running(self):
+        return self.__running
+
 
     def run(self):
         assert self.origThread is None
+        assert not self.__running
+        self.__running = True
         self.origThread = threading.current_thread()
         startTime = time.time()
         while not self.exit:
@@ -157,6 +163,7 @@ class EventLoop():
             if self.logFile is not None: cprint.red(f"executed {cb}", file=self.logFile)
         self.exit = True
         self.terminateAndJoinWorker()
+        self.__running = False
         self.origThread = None
 
     def shutdown(self):

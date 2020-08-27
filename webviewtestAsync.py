@@ -241,11 +241,6 @@ class MyHandler(httpserver.SimpleHTTPRequestHandler):
 
         else:
             cb()
-#         elif self.path.endswith('playbackEnded'):
-#             self.server.server_close()
-#             threading.Thread(target=kill_server, args=(self.server,)).start()
-#             self.send_ok_header(0)
-
 
 class EventLoopServer(httpserver.HTTPServer):
     eloop = None
@@ -346,6 +341,11 @@ def informClose():
         print("Connection to", options.finSock, "failed")
         print(getTraceBack(exec_info))
         pass
+
+# def mainalt():
+#     parseCmdArgument()
+#     port = options.groupPort
+#
 
 def main():
     parseCmdArgument()

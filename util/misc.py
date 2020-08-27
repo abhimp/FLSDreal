@@ -9,6 +9,10 @@ class CallableObj:
         self.args = args
     def __call__(self, *a, **b):
         self.cb(*self.args, *a, **b)
+    def __str__(self):
+        return str(self.cb)
+    def __repr__(self):
+        return repr(self.cb)
 
 
 def getTraceBack(exc_info):
