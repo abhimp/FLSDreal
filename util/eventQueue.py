@@ -2,10 +2,12 @@ import threading
 import queue
 import time
 import sys
+import signal
 
 from util.misc import getTraceBack
 from util.misc import CallableObj
 from util import cprint
+
 
 class Worker():
     def __init__(self, reqTaskCB, exitCB=None):
@@ -56,6 +58,9 @@ class EventLoop():
         self.exit = False
         self.workerTerminateSem = threading.Semaphore(0)
         self.logFile = None if logFile is None else open(logFile, "w")
+
+        self.startExecutingAt = -1
+        self.intervalTimer = 5 #seconds
         pass
 
     def amIMainThread(self):
@@ -131,13 +136,19 @@ class EventLoop():
     def running(self):
         return self.__running
 
+    def handleAlargSignal(self, *a):
+        assert self.startExecutingAt == -1 or (time.time() - self.startExecutingAt < 10)
+
 
     def run(self):
         assert self.origThread is None
         assert not self.__running
+        assert threading.get_ident() == threading.main_thread().ident
         self.__running = True
         self.origThread = threading.current_thread()
         startTime = time.time()
+        signal.signal(signal.SIGALRM, self.handleAlargSignal)
+        signal.setitimer(signal.ITIMER_REAL, 10, 10)
         while not self.exit:
             ev = None
             timeout = None
@@ -160,16 +171,19 @@ class EventLoop():
 
             _, cb, a, b = ev
             if self.logFile is not None: cprint.red(f"executing {cb}", file=self.logFile)
+            self.startExecutingAt = time.time()
             try:
                 cb(*a, **b)
             except:
                 cprint.red("!!ERROR in worker\n", getTraceBack(sys.exc_info()))
                 if self.logFile is not None: cprint.red(f"!!Exception while executing {cb}", file=self.logFile)
             if self.logFile is not None: cprint.red(f"executed {cb}", file=self.logFile)
+            self.startExecutingAt = -1
         self.exit = True
         self.terminateAndJoinWorker()
         self.__running = False
         self.origThread = None
+        signal.setitimer(signal.ITIMER_REAL, 0, 0)
 
     def shutdown(self):
         self.exit = True
