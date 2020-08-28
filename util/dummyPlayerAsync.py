@@ -575,7 +575,8 @@ class DummyPlayer(GroupRpc):
 
         if suitableQl <= targetQl:
             return suitableQl
-        if lastQls[0] == lastQls[1] == lastQls[2]:
+
+        if len(lastQls) >= 3 and min(lastQls) == max(lastQls):
             return targetQl + 1
         return targetQl
 
