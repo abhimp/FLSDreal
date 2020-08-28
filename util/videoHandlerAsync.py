@@ -170,6 +170,7 @@ class VideoStorage():
             fd = urlopen(url)
             self.eloop.addTask(cb, fd) #making it async if required
         except:
+            raise FileNotFoundError(url)
             fd = io.BytesIO(b"Internal error")
             self.eloop.addTask(cb, fd)
 #         content = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
