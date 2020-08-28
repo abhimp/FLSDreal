@@ -355,12 +355,15 @@ class DummyPlayer(GroupRpc):
         url = self.vVidHandler.getChunkUrl('video', self.vNextBuffVidSegId, ql)
         cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
         self.mFetch(url, cllObj) #calling
-        self.vNextBuffVidSegId += 1
-        if self.vNextBuffAudSegId - self.vStartSengId == 3:
+        if self.vNextBuffVidSegId - self.vStartSengId == 3:
             self.mGroupStart()
+        self.vNextBuffVidSegId += 1
 
     def mBufferAudio(self, cb):
 #         cprint.blue(f"Buffering audio vNextBuffAudSegId={self.vNextBuffAudSegId}")
+        if self.vBuffering:
+            return cb()
+        self.vBuffering = True
         segDur = self.vVidHandler.getSegmentDur()
         curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
         bufAudUpto = self.vNextBuffAudSegId * segDur
