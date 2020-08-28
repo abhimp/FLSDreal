@@ -527,7 +527,7 @@ class DummyPlayer(GroupRpc):
         targetQl = -1
         lastSegId = segId - 1
         lastQls = []
-        while len(lastQls) < 3:
+        while len(lastQls) < 3 and lastSegId >= self.vStartSengId:
             lq = self.vVidStorage.getOverAllAvailability(typ, lastSegId)
             if len(lq):
                 lastQls += [max(lq)]
