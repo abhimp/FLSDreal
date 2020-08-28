@@ -142,7 +142,7 @@ class GroupRpc:
         if not callable(func):
             return self.mGroupRpcResponse(cb, error=f"{func} not found")
 
-        self.mRunInMainThread(func, *a, **b)
+        self.mRunInMainThread(func, *a, **b) #it will release the other end
 #         try:
 #             ret = func(*a, **b)
 #         except:
@@ -660,7 +660,7 @@ class DummyPlayer(GroupRpc):
             func = peer.mGetRpcObj(funcname)
             func(self.vMyGid, *a, **b)
         func = getattr(self, funcname)
-        func(self.vMyGid, *a, **b) #need to run in main thread
+        self.mRunInMainThread(func, self.vMyGid, *a, **b) #need to run in main thread and in next cycle
 
     def mAddToGroupDownloadQueue(self, segId):
         self.vGroupDownloadQueue.append(segId)
@@ -684,7 +684,7 @@ class DummyPlayer(GroupRpc):
         url = self.vVidHandler.getChunkUrl('video', segId, ql)
         self.mFetch(url, cllObj)
         self.mBroadcast(self.mGroupInformDownloading, segId, ql)
-        self.mGroupSelectNextLeader() # the entry point
+        self.mRunInMainThread(self.mGroupSelectNextLeader) # the entry point
 
 #     @inMain
     def mGroupDownloaded(self, segId, ql, status, resp, headers, st, ed):
@@ -699,7 +699,7 @@ class DummyPlayer(GroupRpc):
         else:
             self.mBroadcast(self.mGroupSetIdle, True)
 
-    def mGroupSelectNextLeader(self):
+    def mGroupSelectNextLeader(self): #this one have to run in the next cycle.
         if self.vGroupNextSegIdAsIAmTheLeader < 0:
             return
 #         cprint.orange(f"Trying to find leader for segId: {self.vGroupNextSegIdAsIAmTheLeader}")
