@@ -175,7 +175,7 @@ class EventLoop():
             try:
                 cb(*a, **b)
             except:
-                cprint.red("!!ERROR in worker\n", getTraceBack(sys.exc_info()))
+                cprint.red("!!ERROR in main thread\n", getTraceBack(sys.exc_info()))
                 if self.logFile is not None: cprint.red(f"!!Exception while executing {cb}", file=self.logFile)
             if self.logFile is not None: cprint.red(f"executed {cb}", file=self.logFile)
             self.startExecutingAt = -1
