@@ -78,7 +78,7 @@ class EventLoop():
         self.workerSem.acquire()
         numIdle = self.numIdleWorker
         self.workerSem.release()
-        if numIdle == 0 and self.numWorkers < self.maxWorkers:
+        if numIdle == 0 and (self.numWorkers < self.maxWorkers or self.maxWorkers < 0):
             self.numWorkers += 1
             worker = Worker(self.workerFinishedTask, self.workerExited)
             print("numWorkers:", self.numWorkers)
