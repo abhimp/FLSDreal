@@ -198,7 +198,7 @@ class EventLoop():
     def setTimeout(self, timeout, cb, *a, **b):
         assert timeout >= 0
         if timeout <= 0.001:
-            return self.addEvent(cb, *a, **b)
+            return self.addTask(cb, *a, **b)
         cprint.red(f"timeout for {timeout}s for func {cb}")
         runat = time.time() + timeout
         self.TIMER_QUEUE.put((runat, cb, a, b))
