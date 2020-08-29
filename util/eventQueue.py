@@ -10,6 +10,7 @@ from util import cprint
 
 
 class Worker():
+    counter = 0
     def __init__(self, reqTaskCB, exitCB=None):
         self.thread = threading.Thread(target=self.run)
         self.working = False
@@ -17,6 +18,8 @@ class Worker():
         self.task = None
         self.reqTaskCB = reqTaskCB
         self.exitCB = exitCB
+        self.counter += 1
+        self.ident = self.counter
         self.thread.start()
 
     def getId(self):
@@ -93,7 +96,7 @@ class EventLoop():
         self.numIdleWorker += 1
         numIdle = self.numIdleWorker
         self.workerSem.release()
-        if self.logFile is not None: cprint.red(f"Waiting for task {numIdle}/{self.numWorkers}", file=self.logFile)
+        if self.logFile is not None: cprint.red(f"{worker.ident}: Waiting for task {numIdle}/{self.numWorkers}", file=self.logFile)
         task = self.WORKER_TASK_QUEUE.get()
         worker.task = task
         self.workerSem.acquire()
@@ -101,7 +104,7 @@ class EventLoop():
         numIdle = self.numIdleWorker
         self.workerSem.release()
         self.workerSem.release()
-        if self.logFile is not None: cprint.red(f"Waiting for task {numIdle}/{self.numWorkers}, exe: {task[0]}", file=self.logFile)
+        if self.logFile is not None: cprint.red(f"{worker.ident}: Running for task {numIdle}/{self.numWorkers}, exe: {task[0]}", file=self.logFile)
 
     def workerExited(self, worker):
         assert self.origThread is not None
