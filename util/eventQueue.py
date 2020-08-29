@@ -10,16 +10,14 @@ from util import cprint
 
 
 class Worker():
-    counter = 0
-    def __init__(self, reqTaskCB, exitCB=None):
+    def __init__(self, reqTaskCB, exitCB=None, ident=-1):
         self.thread = threading.Thread(target=self.run)
         self.working = False
         self.exit = False
         self.task = None
         self.reqTaskCB = reqTaskCB
         self.exitCB = exitCB
-        self.counter += 1
-        self.ident = self.counter
+        self.ident = ident
         self.thread.start()
 
     def getId(self):
@@ -55,6 +53,7 @@ class EventLoop():
         self.workerGroupTerminated = []
         self.maxWorkers = maxWorkers
         self.numIdleWorker = 0
+        self.totWorkerCreated = 0 #monotonically increasing
         self.numWorkers = 0
         self.origThread = None
         self.workerSem = threading.Semaphore(1)
@@ -83,7 +82,8 @@ class EventLoop():
         self.workerSem.release()
         if numIdle == 0 and (self.numWorkers < self.maxWorkers or self.maxWorkers < 0):
             self.numWorkers += 1
-            worker = Worker(self.workerFinishedTask, self.workerExited)
+            self.totWorkerCreated += 1
+            worker = Worker(self.workerFinishedTask, self.workerExited, self.totWorkerCreated)
             print("numWorkers:", self.numWorkers)
         self.WORKER_TASK_QUEUE.put((cb, a, b))
 
