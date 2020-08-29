@@ -163,6 +163,7 @@ class VideoStorage():
             fd = self.vidHandler.getInitFileDescriptor(typ, ql)
             return cb(fd)
         url = self.mediaContent.get((typ, segId, ql), None) #elf.chunks.setdefault(mt, {}).setdefault(ql, {})
+        assert url is not None
         self.eloop.runInWorker(self.getFileDescriptorFromWorker, cb, url)
 
     def getFileDescriptorFromWorker(self, cb, url):
