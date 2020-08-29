@@ -411,6 +411,9 @@ class DummyPlayer(GroupRpc):
         vql = self.vVidStorage.getAvailableMaxQuality('video', self.vNextSegId)
         if vql < 0:
             return cb(actions, [], [], 0)
+        aql = self.vVidStorage.getAvailableMaxQuality('audio', self.vNextSegId)
+        if aql < 0:
+            return cb(actions, [], [], 0)
 
         qualities = toDict(audio = 0, video = vql)
         l = 0

@@ -182,7 +182,7 @@ class VideoStorage():
 #         return fd
 
     def getAvailableMaxQuality(self, typ, segId):
-        vqls = self.getAvailability('video', segId, '*')
+        vqls = self.getAvailability(typ, segId, '*')
         if len(vqls) == 0:
             return -1
         return max(vqls)
