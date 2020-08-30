@@ -547,7 +547,7 @@ class DummyPlayer(GroupRpc):
 #         assert segId - lastSegId < 4
 
         curMaxPlaybackTime = max([n.vPlayerStat.mGetPlaybackTime() for n in peers])
-        timeToDl = segId*segDur - curMaxPlaybackTime
+        timeToDl = (segId -1)*segDur - curMaxPlaybackTime # need to give a breathing time.
 
         if timeToDl < 1: #no time to dl
             return 0
@@ -575,7 +575,7 @@ class DummyPlayer(GroupRpc):
         except:
             pass #fixme
 
-        matchDl = [dlLimit - c*.95 for c in chunkSizes] #giving 5% tolerence
+        matchDl = [dlLimit - c*1.05 for c in chunkSizes] #giving 5% conservative
         matchDl = [float('inf') if md < 0 else md for md in matchDl]
 
         suitableQl = int(np.argmin(matchDl))
