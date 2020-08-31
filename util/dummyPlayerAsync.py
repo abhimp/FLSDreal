@@ -217,6 +217,8 @@ class DummyPlayer(GroupRpc):
         self.vMinBufferLength = 30
         self.vBuffering = False
 
+        self.mDownloadingSegs = {"video": -1, "audio": -1}
+
 
         #========Group Info================
         self.vGroupStarted = False # atleast neighbor require
@@ -313,6 +315,7 @@ class DummyPlayer(GroupRpc):
         dt = json.loads(dt)
         self.vVidStorage.updateChunkSizes(dt)
         self.vVidStorage.storeChunk(typ, segId, ql, resp, st, ed)
+        self.mDownloadingSegs[typ] = -1
 
         cb()
 
@@ -355,6 +358,7 @@ class DummyPlayer(GroupRpc):
         self.vBuffering = True
         cllObj = CallableObj(self.mBuffered, cb, 'video', self.vNextBuffVidSegId, ql)
         self.mFetch(url, cllObj) #calling
+        self.mDownloadingSegs['video'] = self.vNextBuffVidSegId
         if self.vNextBuffVidSegId - self.vStartSengId == 3:
             self.mGroupStart()
         self.vNextBuffVidSegId += 1
@@ -379,6 +383,7 @@ class DummyPlayer(GroupRpc):
         cllObj = CallableObj(self.mBuffered, cb, 'audio', self.vNextBuffAudSegId, 0)
         self.vBuffering = True
         self.mFetch(url, cllObj) #calling
+        self.mDownloadingSegs['audio'] = self.vNextBuffVidSegId
         self.vNextBuffAudSegId += 1
 
     def mSendResponse(self, cb):
@@ -671,28 +676,46 @@ class DummyPlayer(GroupRpc):
         self.mRunInMainThread(func, self.vMyGid, *a, **b) #need to run in main thread and in next cycle
 
     def mAddToGroupDownloadQueue(self, segId):
-        self.vGroupDownloadQueue.append(segId)
+        self.vGroupDownloadQueue.append((segId, '*'))
         self.mBroadcast(self.mGroupSetIdle, False)
         if not self.vGroupDownloading:
-            self.mStartGrpDownloading(segId)
+            self.mStartGrpDownloading()
 
 #     @inMain
     def mStartGrpDownloading(self, recurs=False):
         if not recurs: #another bad hack
             assert not self.vGroupDownloading
         self.vGroupDownloading = True
-        segId = self.vGroupDownloadQueue[0] #peeking the head
+        segId, ql = self.vGroupDownloadQueue[0] #peeking the head
         if not self.vVidHandler.isSegmentAvaibleAtTheServer(segId):
             wait = self.vVidHandler.timeToSegmentAvailableAtTheServer(segId)
             self.vEloop.setTimeout(wait, self.mStartGrpDownloading, True)
             return
-        segId = self.vGroupDownloadQueue.pop(0) #removing the queue
-        ql = self.mGroupSelectNextQuality(segId) #FIXME select quality based on the group
+        segId, ql = self.vGroupDownloadQueue.pop(0) #removing the queue
+        if ql == '*':
+            ql = self.mGroupSelectNextQuality(segId) #FIXME select quality based on the group
         cllObj = CallableObj(self.mGroupDownloaded, segId, ql)
         url = self.vVidHandler.getChunkUrl('video', segId, ql)
         self.mFetch(url, cllObj)
         self.mBroadcast(self.mGroupInformDownloading, segId, ql)
         self.mRunInMainThread(self.mGroupSelectNextLeader) # the entry point
+
+    def mGroupHandleFailSafe(self):
+        segDur = self.vVidHandler.getSegmentDur()
+        segId = self.vNextBuffVidSegId
+        curPlaybackTime = self.vNativePlaybackTime if self.vNativePlaybackTime >= self.vSetPlaybackTime else self.vSetPlaybackTime
+        bufVidUpto = segId * segDur
+        bufVidLen = bufVidUpto - curPlaybackTime
+        if bufVidLen >= 2*segDur:
+            return
+        vql = self.vVidStorage.getAvailableMaxQuality('video', segId)
+        if vql > -1: #already downloaded by someone
+            return
+        vqls = self.vVidStorage.getRemoteAvailability('video', segId)
+        if min(vqls) == 0: #someone already downloading it
+            return
+        self.vGroupDownloadQueue.insert((segId, 0))
+        pass
 
 #     @inMain
     def mGroupDownloaded(self, segId, ql, status, resp, headers, st, ed):
@@ -702,6 +725,7 @@ class DummyPlayer(GroupRpc):
         self.mBuffered(self.mNoop, 'video', segId, ql, status, resp, headers, st, ed)
         self.mBroadcast(self.mGroupInformDownloaded, segId, ql, dt)
         self.vGroupDownloading = False
+        self.mGroupHandleFailSafe()
         if len(self.vGroupDownloadQueue) > 0:
             self.mStartGrpDownloading() #seg is available as it is present in queue
         else:

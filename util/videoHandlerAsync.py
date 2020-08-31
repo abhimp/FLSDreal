@@ -140,6 +140,8 @@ class VideoStorage():
             self.mediaSizes[(typ, segId, ql)] = clen
 
     def storeRemoteChunk(self, typ, segId, ql, url):
+        if (typ, segId, ql) in self.mediaContent:
+            return
         req = Request(urljoin(url, "/groupmedia"), data=json.dumps((typ, segId, ql)).encode(), method='POST')
         self.mediaContent[(typ, segId, ql)] = req
         self.availability["typ_ql"].setdefault((typ, ql), set()).add(segId)
