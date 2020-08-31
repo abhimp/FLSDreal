@@ -27,12 +27,12 @@ def __endColor(file=None):
     return ""
 
 def myprint(*a, **b):
-    file=b.get("file", None)
+    b.setdefault('flush', True)
     print(*a, **b)
-    if file:
-        file.flush() # I need all the log possible.
-    else:
-        sys.stdout.flush()
+#     if file:
+#         file.flush() # I need all the log possible.
+#     else:
+#         sys.stdout.flush()
 
 def red(*a, **b):
     file=b.get("file", None)

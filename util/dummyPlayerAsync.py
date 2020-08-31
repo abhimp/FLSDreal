@@ -235,6 +235,7 @@ class DummyPlayer(GroupRpc):
         #==================================
 
         self.vQoeLogFd = None
+        self.vSegFetchLogFd = None
 
         self.mInit()
 
@@ -247,6 +248,7 @@ class DummyPlayer(GroupRpc):
         self.vStartSengId = self.vNextBuffVidSegId = self.vNextBuffAudSegId = self.vNextSegId
         if self.vOptions.logDir is not None:
             self.vQoeLogFd = open(os.path.join(self.vOptions.logDir, "QoE.log"), "w")
+            self.vSegFetchLogFd = open(os.path.join(self.vOptions.logDir, "SegFetch.log"), "w")
 
     def mGetJson(self):
         return self.vVidHandler.getJson()
@@ -316,6 +318,9 @@ class DummyPlayer(GroupRpc):
         self.vVidStorage.updateChunkSizes(dt)
         self.vVidStorage.storeChunk(typ, segId, ql, resp, st, ed)
         self.mDownloadingSegs[typ] = -1
+
+        if self.vSegFetchLogFd is not None:
+            print(typ, segId, ql, status, resp, headers, st, ed, file=self.vQoeLogFd, flush=True)
 
         cb()
 
@@ -392,6 +397,9 @@ class DummyPlayer(GroupRpc):
             if self.vQoeLogFd is not None:
                 self.vQoeLogFd.close()
                 self.vQoeLogFd = None
+            if self.vSegFetchLogFd is not None:
+                self.vSegFetchLogFd.close()
+                self.vSegFetchLogFd = None
             return cb({}, [{"eof" : True}], [], 0)
 
         actions = {}
