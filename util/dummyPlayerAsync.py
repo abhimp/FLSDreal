@@ -320,7 +320,7 @@ class DummyPlayer(GroupRpc):
         self.mDownloadingSegs[typ] = -1
 
         if self.vSegFetchLogFd is not None:
-            print(typ, segId, ql, status, resp, headers, st, ed, file=self.vQoeLogFd, flush=True)
+            print(typ, segId, ql, status, st, ed, file=self.vSegFetchLogFd, flush=True)
 
         cb()
 
