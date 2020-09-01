@@ -351,6 +351,7 @@ class DummyPlayer(GroupRpc):
             if bufVidLen > (2*segDur):
                 return cb()
             else:
+                return cb() #removing failsafe
                 remAvailability = self.vVidStorage.getOverAllAvailability('video', self.vNextBuffVidSegId)
                 if len(remAvailability) and 0 in remAvailability: #if someone already downloading in lowest quality, I don't have to
                     return cb()
