@@ -565,6 +565,7 @@ class DummyPlayer(GroupRpc):
 
         if timeToDl < 1: #no time to dl
             return 0
+        timeToDl = min(timeToDl, segDur*len(self.vNeighbors)) #lets not give all the we have
 
         chunkHistory = self.vVidStorage.getDownloadHistory(typ)
         x, last5clens, last5sttimes, last5entimes = zip(*chunkHistory[-5:])
