@@ -723,7 +723,7 @@ class DummyPlayer(GroupRpc):
         vqls = self.vVidStorage.getRemoteAvailability('video', segId)
         if len(vqls) != 0 and min(vqls) == 0: #someone already downloading it
             return
-        self.vGroupDownloadQueue.insert((segId, 0))
+        self.vGroupDownloadQueue.insert(0, (segId, 0))
         pass
 
 #     @inMain
