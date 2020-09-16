@@ -7,7 +7,7 @@ The project contains three components,
 The FLSDReal player and live video emulator are compatible with python3.7 or above. The mininet system is compatible with python 2.7 as mininet is not available for python3.7.
 
 ## Live video emulator
-The FLSDReal player require a live video stream. As it is difficult to find a real video stream, we emulate real video stream using live video proxy. However, the emulator needs a DASHified video to emulate as live. The command to run the live video proxy is
+The FLSDReal player require a live video stream. As it is difficult to find a real video stream, we emulate real video stream using live video proxy. However, the emulator needs a DASHified video to emulate as live. One such emulated video can be found at `https://github.com/abhimp/DASHVideos`. The command to run the live video proxy is
 
     python3.7 liveVideo/proxyServer.py /path/to/mpd/file
 
