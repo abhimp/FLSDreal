@@ -246,7 +246,8 @@ class EventLoopServer(httpserver.HTTPServer):
     eloop = None
     privateData = {}
     def process_request_thread(self, request, client_address):
-        """Same as in BaseServer but as a thread.
+        """
+        Same as in BaseServer but as a thread.
         In addition, exception handling is done here.
         """
         try:
