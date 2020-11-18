@@ -217,10 +217,10 @@ def prepareNetwork(options):
             linkProp = linkPropCor
             net.addLink(switches[s], routers[r], cls=TCLink, **linkProp)
         elif r in hosts:
-            if r.startswith("hvs"):
-                linkProp = linkPropSer
-            else:
+            if r.startswith("hvc"):
                 linkProp = linkPropCli
+            else:
+                linkProp = linkPropSer
             net.addLink(switches[s], hosts[r], cls=TCLink, **linkProp)
         else:
             raise Exception("error")
