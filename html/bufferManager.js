@@ -18,6 +18,7 @@ function BufferManager(msrc, info, type){
         }
 
         srcBuf = msrc.addSourceBuffer(mimeCodec)
+        srcBuf.mode = 'sequence'
         srcBuf.addEventListener("updateend", segmentLoaded)
         srcBuf.addEventListener("error", segmentLoadError)
     }
@@ -62,11 +63,13 @@ function BufferManager(msrc, info, type){
         updatingSegmentDetail = segments[0]
         if(lastRepId == repId){
             loadingInit = false
+            console.log('appending segment ', num, ' with repId ',repId)
             segments.shift()
             srcBuf.appendBuffer(seg)
         }
         else{
             loadingInit = true
+            console.log('appending init for ', repId)
             try {
                 //console.log(initFiles[repId])
                 srcBuf.appendBuffer(initFiles[repId])

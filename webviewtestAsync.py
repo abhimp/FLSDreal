@@ -350,6 +350,7 @@ def informClose():
 def main():
     parseCmdArgument()
     port = options.groupPort
+    print(options.tmpDir)
     with EventLoopServer(("",port), MyHandler) as httpd:
         print(httpd.server_address)
         p = startWeb(httpd.server_address[1])

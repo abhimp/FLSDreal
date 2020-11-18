@@ -7,6 +7,8 @@ from urllib.request import urlopen
 from urllib.request import Request
 
 from util import cprint
+import subprocess
+
 
 class VideoHandler:
     def __init__(self, mpdpath):
@@ -125,12 +127,28 @@ class VideoStorage():
                 for ch in chunks:
                     self.mediaSizes[(mt, segId, ch[0])] = ch[1]
 
+    def storeInitFiles(self, initVideo):
+        for x,m in enumerate(initVideo):
+            fd_init = open(self.tmpDir+'/video_init_{}'.format(x),'wb')
+            fd_init.write(m)
+            fd_init.close()
+
     def storeChunk(self, typ, segId, ql, content, sttime, entime):
         clen = len(content)
         assert (typ, segId, ql) not in self.mediaSizes or self.mediaSizes[(typ, segId, ql)] == clen
         url = f"{self.tmpDir}/{typ}_{segId}_{ql}"
         with open(url, "wb") as fp:
             fp.write(content)
+
+        if(typ == 'video' and ql == 0):
+            print('Using SR module', url)
+            subprocess.run(['/home/omar/.virtualenvs/abr/bin/python','gen_SR_seg.py',self.tmpDir,str(segId)])
+            ql = 7
+            url = f"{self.tmpDir}/{typ}_{segId}_{ql}"
+            with open(url, "rb") as fp:
+                clen = len(fp.read())   
+            self.mediaSizes[(typ, segId, ql)] = clen
+            
         self.mediaContent[(typ, segId, ql)] = "file://" + url
         self.mediaDownloadInfo[(typ, segId, ql)] = (sttime, entime)
         self.availability["typ_ql"].setdefault((typ, ql), set()).add(segId)

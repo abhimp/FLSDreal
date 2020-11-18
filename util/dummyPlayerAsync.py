@@ -203,6 +203,8 @@ class DummyPlayer(GroupRpc):
         self.vVidHandler = VideoHandler(options.mpdPath)
         self.vVidStorage = VideoStorage(self.vEloop, self.vVidHandler, options.tmpDir)
 
+        self.vVidStorage.storeInitFiles(self.vVidHandler.initFiles['video'])
+
         #======Playback Stat====
         self.vNativePlaybackTime = 0 # seconds
         self.vNativePlayerBuffers = [] # seconds
@@ -241,7 +243,8 @@ class DummyPlayer(GroupRpc):
 
     def mInit(self):
         dur = self.vVidHandler.getSegmentDur()
-        self.vSetPlaybackTime = self.vVidHandler.expectedPlaybackTime()
+        # self.vSetPlaybackTime = self.vVidHandler.expectedPlaybackTime()
+        self.vSetPlaybackTime = -1
         if self.vStartPlaybackTime == -1:
             self.vStartPlaybackTime = self.vSetPlaybackTime
         self.vNextSegId = int(self.vSetPlaybackTime/dur)
