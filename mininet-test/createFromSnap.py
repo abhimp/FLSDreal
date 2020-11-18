@@ -33,7 +33,7 @@ deg.sort(key=lambda x: x[1], reverse=True)
 
 newedges = []
 
-print(deg)
+# print(deg)
 sc = 0
 for x, z in deg:
     switches = {}
@@ -53,9 +53,15 @@ for x, z in deg:
     sc += 1
     newedges.append((f"r{x}", f"s{sc}"))
     hcnt += 1
-    newedges.append((f"h{hcnt}", f"s{sc}"))
+    newedges.append((f"hc{hcnt}", f"s{sc}"))
     hcnt += 1
-    newedges.append((f"h{hcnt}", f"s{sc}"))
+    newedges.append((f"hc{hcnt}", f"s{sc}"))
+
+assert deg[0][1] >= 1
+sc += 1
+newedges.append((f"r{deg[0][0]}", f"sp{sc}"))
+hcnt += 1
+newedges.append((f"nn{hcnt}", f"sp{sc}"))
 
 
 for x, y in newedges:
