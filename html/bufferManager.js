@@ -20,6 +20,7 @@ function BufferManager(msrc, info, type){
         srcBuf = msrc.addSourceBuffer(mimeCodec)
         srcBuf.addEventListener("updateend", segmentLoaded)
         srcBuf.addEventListener("error", segmentLoadError)
+        srcBuf.mode = "sequence"
     }
 
     function segmentLoadError(e) { //TODO use it later

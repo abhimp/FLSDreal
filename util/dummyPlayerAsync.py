@@ -459,6 +459,7 @@ class DummyPlayer(GroupRpc):
         self.vVidStorage.getFileDescriptor(cb, mt, segId, ql)
 
     def mAppendFds(self, cb, actions, segs, fds, tl, this, nexts, fd):
+        segDur = self.vVidHandler.getSegmentDur()
         seg, mt, segId, ql = this
         if segId == 'init':
             seg = {}
@@ -469,6 +470,7 @@ class DummyPlayer(GroupRpc):
             tl += seg['ilen']
         else:
             seg['seg'] = self.vNextSegId
+            seg['time'] = self.vNextSegId * segDur
             seg['coff'] = tl
             seg['clen'] = self.vVidStorage.getChunkSize(mt, segId, ql)
             tl += seg['clen']

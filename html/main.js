@@ -2,6 +2,8 @@
 var vidBufMan = null
 var audBufMan = null
 
+var startPlaybackTime = -1
+
 var intervalTimer = null
 
 
@@ -81,7 +83,7 @@ function applyAction(body, info) {
         if (typeof seg["eof"] !== "undefined" && seg["eof"] == true) {
             showEnded = true
             msrc.endOfStream()
-            var pTime = videoElement.currentTime
+            var pTime = videoElement.currentTime + Math.max(startPlaybackTime, 0)
             var buf = videoElement.buffered
             var bufUpto = buf.end(buf.length - 1)
             sleepTime = pTime < bufUpto ? bufUpto - pTime : 0
@@ -97,6 +99,9 @@ function applyAction(body, info) {
         var cOff = seg["coff"]
         var cLen = seg["clen"]
         var type = seg["type"]
+        if (startPlaybackTime < 0 && "time" in seg){
+            startPlaybackTime = seg['time']
+        }
 
         var bm = audBufMan
         if(type == "video"){
@@ -113,7 +118,7 @@ function applyAction(body, info) {
 
     actions = info["actions"]
     if (typeof actions["seekto"] != "undefined"){
-        videoElement.currentTime = actions["seekto"]
+        videoElement.currentTime = actions["seekto"] - Math.max(startPlaybackTime, 0)
     }
 
     try{
@@ -144,7 +149,7 @@ function getAction(){
         }
     }
 
-    xhr.setRequestHeader("X-PlaybackTime", roundd(videoElement.currentTime, 3)) //seconds
+    xhr.setRequestHeader("X-PlaybackTime", roundd(videoElement.currentTime + Math.max(startPlaybackTime, 0), 3)) //seconds
     xhr.setRequestHeader("X-Buffer", serializeTimerange(videoElement.buffered)) //seconds
     xhr.setRequestHeader("X-Stall", roundd((totalStalled + getCurStall())/1000, 3)) //seconds
 
