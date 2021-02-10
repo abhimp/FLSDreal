@@ -37,7 +37,7 @@ class MyHttpHandler(httpserver.SimpleHTTPRequestHandler):
             "/media/time": self.sendTime,
             "/media/": self.sendChunk,
             "/media/chunk/": self.sendChunkAbs,
-	    "/media/sizes/": self.sendChunkSizes,
+            "/media/sizes/": self.sendChunkSizes,
             "/media/mpdjson": self.sendMpdJson,
             "/delayTest": self.delayTest,
         }
